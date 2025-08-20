@@ -18,29 +18,8 @@ class CreateSessionScreen extends StatefulWidget {
 class _CreateSessionScreenState extends State<CreateSessionScreen> {
   final _formKey = GlobalKey<FormState>();
   String? _selectedCourse;
-  String? _selectedClass;
+  int? _selectedClass;
   String? _selectedBatch;
-  bool _isCreating = false;
-
-  // Available options
-  final List<String> _courses = [
-    'BTECH',
-    'CIVIL',
-    'MECHANICAL',
-    'ELECTRICAL',
-    'COMPUTER SCIENCE',
-    'ELECTRONICS',
-    'CHEMICAL',
-    'AEROSPACE',
-  ];
-
-  final List<String> _classes = [
-    '1', '2', '3', '4', '5', '6', '7', '8', '9'
-  ];
-
-  final List<String> _batches = [
-    'A', 'B', 'C', 'D', 'E'
-  ];
 
   @override
   void initState() {
@@ -54,17 +33,11 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
   }
 
   Future<void> _createSession() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
     
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
     final locationProvider = Provider.of<LocationProvider>(context, listen: false);
-    
-    final faculty = authProvider.currentUser as FacultyModel?;
-    if (faculty == null) {
-      _showErrorDialog('Authentication Error', 'Please log in again.');
-      return;
-    }
     
     // Check location readiness
     if (!locationProvider.isLocationReady) {
@@ -75,42 +48,23 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
       return;
     }
     
-    setState(() {
-      _isCreating = true;
-    });
-    
-    try {
-      // Get current location
-      await locationProvider.getCurrentLocation();
+    final success = await attendanceProvider.createSession(
+      course: _selectedCourse!,
+      classNumber: _selectedClass!,
+      batch: _selectedBatch,
+      authProvider: authProvider,
+    );
       
-      if (locationProvider.currentLocation == null) {
-        throw Exception('Unable to get current location');
-      }
-      
-      // Create session
-      final sessionCode = await attendanceProvider.createSession(
-        facultyId: faculty.id,
-        facultyName: faculty.name,
-        course: _selectedCourse!,
-        classNumber: _selectedClass!,
-        batch: _selectedBatch,
-        location: locationProvider.currentLocation!,
-      );
-      
-      if (mounted) {
+    if (success && mounted) {
+      final sessionCode = attendanceProvider.currentSession?.sessionCode;
+      if (sessionCode != null) {
         _showSuccessDialog(sessionCode);
         _resetForm();
+      } else {
+        _showErrorDialog('Session Creation Failed', 'Could not retrieve session code.');
       }
-    } catch (e) {
-      if (mounted) {
-        _showErrorDialog('Session Creation Failed', e.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isCreating = false;
-        });
-      }
+    } else if (mounted) {
+      _showErrorDialog('Session Creation Failed', attendanceProvider.errorMessage ?? 'An unknown error occurred.');
     }
   }
   
@@ -409,6 +363,12 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
   }
 
   Widget _buildSessionForm() {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final faculty = authProvider.currentUser as FacultyModel?;
+    final assignedCourses = faculty?.assignedCourses ?? [];
+    final assignedClasses = faculty?.assignedClasses.map((c) => c.toString()).toList() ?? [];
+    final batches = ['A', 'B', 'C', 'D', 'E']; // Can be hardcoded or moved to config
+
     return Form(
       key: _formKey,
       child: Column(
@@ -428,7 +388,7 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
           _buildDropdownField(
             label: 'Course',
             value: _selectedCourse,
-            items: _courses,
+            items: assignedCourses,
             onChanged: (value) {
               setState(() {
                 _selectedCourse = value;
@@ -447,15 +407,15 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
           // Class Selection
           _buildDropdownField(
             label: 'Class',
-            value: _selectedClass,
-            items: _classes,
+            value: _selectedClass?.toString(),
+            items: assignedClasses,
             onChanged: (value) {
               setState(() {
-                _selectedClass = value;
+                _selectedClass = value != null ? int.tryParse(value) : null;
               });
             },
             validator: (value) {
-              if (value == null || value.isEmpty) {
+              if (value == null) {
                 return 'Please select a class';
               }
               return null;
@@ -468,7 +428,7 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
           _buildDropdownField(
             label: 'Batch (Optional)',
             value: _selectedBatch,
-            items: _batches,
+            items: batches,
             onChanged: (value) {
               setState(() {
                 _selectedBatch = value;
@@ -482,24 +442,22 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
           // Create Session Button
           SizedBox(
             width: double.infinity,
-            child: Consumer<LocationProvider>(
-              builder: (context, locationProvider, child) {
-                final isEnabled = locationProvider.isLocationReady && !_isCreating;
+            child: Consumer2<LocationProvider, AttendanceProvider>(
+              builder: (context, locationProvider, attendanceProvider, child) {
+                final isEnabled = locationProvider.isLocationReady && !attendanceProvider.isCreatingSession;
                 
                 return GlassmorphicButton(
                   onPressed: isEnabled ? _createSession : null,
-                  child: _isCreating
+                  child: attendanceProvider.isCreatingSession
                       ? Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            SizedBox(
+                            const SizedBox(
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  AppTheme.textPrimary,
-                                ),
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -519,7 +477,7 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
                             Icon(
                               Icons.add_circle,
                               color: isEnabled 
-                                  ? AppTheme.textPrimary 
+                                  ? Colors.white
                                   : AppTheme.textSecondary,
                               size: 20,
                             ),
@@ -528,7 +486,7 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
                               'Create Session',
                               style: TextStyle(
                                 color: isEnabled 
-                                    ? AppTheme.textPrimary 
+                                    ? Colors.white
                                     : AppTheme.textSecondary,
                                 fontWeight: FontWeight.w600,
                                 fontSize: 16,

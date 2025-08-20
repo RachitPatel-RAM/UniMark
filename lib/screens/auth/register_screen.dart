@@ -208,12 +208,28 @@ class _StudentRegistrationFormState extends State<_StudentRegistrationForm> {
   final _enrollmentController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  
+
   String? _selectedCourse;
   int? _selectedClass;
   String? _selectedBatch;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _nameController.addListener(() => _clearError(authProvider));
+    _enrollmentController.addListener(() => _clearError(authProvider));
+    _passwordController.addListener(() => _clearError(authProvider));
+    _confirmPasswordController.addListener(() => _clearError(authProvider));
+  }
+
+  void _clearError(AuthProvider provider) {
+    if (provider.errorMessage != null) {
+      provider.clearError();
+    }
+  }
 
   @override
   void dispose() {
@@ -225,12 +241,22 @@ class _StudentRegistrationFormState extends State<_StudentRegistrationForm> {
   }
 
   Future<void> _handleRegister() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_formKey.currentState?.validate() != true) {
+      return;
+    }
+    if (_selectedCourse == null || _selectedClass == null) {
+      // This should be caught by validators, but as a safeguard:
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please ensure all fields are selected.'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
+
     final success = await authProvider.registerStudent(
       name: _nameController.text.trim(),
       enrollmentNumber: _enrollmentController.text.trim(),
@@ -242,17 +268,18 @@ class _StudentRegistrationFormState extends State<_StudentRegistrationForm> {
     );
 
     if (success && mounted) {
-      // Show success message and navigate to login
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Registration successful! Please sign in.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
+      // Navigate to dashboard
+      final user = authProvider.currentUser;
+      if (user != null) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const StudentDashboard()),
+        );
+      } else {
+        // Fallback to login screen if something went wrong
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+        );
+      }
     }
   }
 
@@ -542,11 +569,34 @@ class _FacultyRegistrationFormState extends State<_FacultyRegistrationForm> {
   final _departmentController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  
+
   List<String> _selectedCourses = [];
   List<int> _selectedClasses = [];
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  String? _courseSelectionError;
+
+  @override
+  void initState() {
+    super.initState();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _nameController.addListener(() => _clearError(authProvider));
+    _emailController.addListener(() => _clearError(authProvider));
+    _departmentController.addListener(() => _clearError(authProvider));
+    _passwordController.addListener(() => _clearError(authProvider));
+    _confirmPasswordController.addListener(() => _clearError(authProvider));
+  }
+
+  void _clearError(AuthProvider provider) {
+    if (provider.errorMessage != null) {
+      provider.clearError();
+    }
+    if (_courseSelectionError != null) {
+      setState(() {
+        _courseSelectionError = null;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -559,32 +609,23 @@ class _FacultyRegistrationFormState extends State<_FacultyRegistrationForm> {
   }
 
   Future<void> _handleRegister() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_formKey.currentState?.validate() != true) {
       return;
     }
 
-    if (_selectedCourses.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select at least one course'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+    setState(() {
+      _courseSelectionError = null;
+    });
 
-    if (_selectedClasses.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select at least one class'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    if (_selectedCourses.isEmpty || _selectedClasses.isEmpty) {
+      setState(() {
+        _courseSelectionError = 'Please select at least one course and one class.';
+      });
       return;
     }
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
+
     final success = await authProvider.registerFaculty(
       name: _nameController.text.trim(),
       email: _emailController.text.trim(),
@@ -596,17 +637,18 @@ class _FacultyRegistrationFormState extends State<_FacultyRegistrationForm> {
     );
 
     if (success && mounted) {
-      // Show success message and navigate to login
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Registration successful! Please sign in.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
+      // Navigate to dashboard
+      final user = authProvider.currentUser;
+      if (user != null) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const FacultyDashboard()),
+        );
+      } else {
+        // Fallback to login screen if something went wrong
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+        );
+      }
     }
   }
 
@@ -714,6 +756,7 @@ class _FacultyRegistrationFormState extends State<_FacultyRegistrationForm> {
                               } else {
                                 _selectedCourses.remove(course);
                               }
+                              _clearError(authProvider);
                             });
                           },
                           selectedColor: AppTheme.primaryColor.withOpacity(0.3),
@@ -748,6 +791,7 @@ class _FacultyRegistrationFormState extends State<_FacultyRegistrationForm> {
                               } else {
                                 _selectedClasses.remove(classNum);
                               }
+                              _clearError(authProvider);
                             });
                           },
                           selectedColor: AppTheme.primaryColor.withOpacity(0.3),
@@ -756,6 +800,17 @@ class _FacultyRegistrationFormState extends State<_FacultyRegistrationForm> {
                       }).toList(),
                     ),
                     
+                    if (_courseSelectionError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _courseSelectionError!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.red,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+
                     const SizedBox(height: 16),
                     
                     // Password Field

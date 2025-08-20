@@ -1,6 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/location_service.dart';
+
+enum LocationAccuracy {
+  unknown,
+  low,
+  medium,
+  high,
+  best,
+}
 
 class LocationProvider extends ChangeNotifier {
   final LocationService _locationService = LocationService();
@@ -14,8 +23,7 @@ class LocationProvider extends ChangeNotifier {
   bool _isMockLocation = false;
   
   // Location tracking
-  bool _isTracking = false;
-  Stream<Position>? _positionStream;
+  StreamSubscription<Position>? _positionStreamSubscription;
   
   // Distance calculations
   double? _lastCalculatedDistance;
@@ -30,7 +38,7 @@ class LocationProvider extends ChangeNotifier {
   bool get isLocationEnabled => _isLocationEnabled;
   LocationAccuracy get currentAccuracy => _currentAccuracy;
   bool get isMockLocation => _isMockLocation;
-  bool get isTracking => _isTracking;
+  bool get isTracking => _positionStreamSubscription != null;
   double? get lastCalculatedDistance => _lastCalculatedDistance;
   Position? get targetPosition => _targetPosition;
   
@@ -58,6 +66,7 @@ class LocationProvider extends ChangeNotifier {
       
       if (!_isLocationEnabled) {
         _setError('Location services are disabled. Please enable GPS.');
+        _setLoading(false);
         return;
       }
 
@@ -69,6 +78,7 @@ class LocationProvider extends ChangeNotifier {
         
         if (!_hasPermission) {
           _setError('Location permission denied. Please grant location access.');
+          _setLoading(false);
           return;
         }
       }
@@ -78,7 +88,7 @@ class LocationProvider extends ChangeNotifier {
         await getCurrentLocation();
       }
     } catch (e) {
-      _setError('Failed to check location status: $e');
+      _setError('Failed to initialize location services.');
     } finally {
       _setLoading(false);
     }
@@ -93,6 +103,7 @@ class LocationProvider extends ChangeNotifier {
       if (!_hasPermission || !_isLocationEnabled) {
         await checkLocationStatus();
         if (!_hasPermission || !_isLocationEnabled) {
+          _setLoading(false);
           return false;
         }
       }
@@ -125,7 +136,7 @@ class LocationProvider extends ChangeNotifier {
         return false;
       }
     } catch (e) {
-      _setError('Failed to get location: $e');
+      _setError('Failed to get your current location.');
       return false;
     } finally {
       _setLoading(false);
@@ -135,7 +146,7 @@ class LocationProvider extends ChangeNotifier {
   // Start location tracking
   Future<bool> startLocationTracking() async {
     try {
-      if (_isTracking) {
+      if (isTracking) {
         return true;
       }
 
@@ -146,9 +157,9 @@ class LocationProvider extends ChangeNotifier {
         }
       }
 
-      _positionStream = _locationService.getLocationStream();
+      final positionStream = _locationService.getLocationStream();
       
-      _positionStream?.listen(
+      _positionStreamSubscription = positionStream.listen(
         (Position position) {
           _currentPosition = position;
           
@@ -166,25 +177,23 @@ class LocationProvider extends ChangeNotifier {
           notifyListeners();
         },
         onError: (error) {
-          _setError('Location tracking error: $error');
-          _isTracking = false;
-          notifyListeners();
+          _setError('Location tracking failed.');
+          stopLocationTracking();
         },
       );
 
-      _isTracking = true;
       notifyListeners();
       return true;
     } catch (e) {
-      _setError('Failed to start location tracking: $e');
+      _setError('Could not start location tracking.');
       return false;
     }
   }
 
   // Stop location tracking
   void stopLocationTracking() {
-    _isTracking = false;
-    _positionStream = null;
+    _positionStreamSubscription?.cancel();
+    _positionStreamSubscription = null;
     notifyListeners();
   }
 
@@ -263,7 +272,7 @@ class LocationProvider extends ChangeNotifier {
       notifyListeners();
       return _hasPermission;
     } catch (e) {
-      _setError('Failed to request location permission: $e');
+      _setError('Failed to request location permission.');
       return false;
     }
   }
@@ -273,7 +282,7 @@ class LocationProvider extends ChangeNotifier {
     try {
       return await _locationService.openLocationSettings();
     } catch (e) {
-      _setError('Failed to open location settings: $e');
+      _setError('Could not open location settings.');
       return false;
     }
   }
@@ -283,7 +292,7 @@ class LocationProvider extends ChangeNotifier {
     try {
       return await _locationService.openAppSettings();
     } catch (e) {
-      _setError('Failed to open app settings: $e');
+      _setError('Could not open app settings.');
       return false;
     }
   }
@@ -383,12 +392,4 @@ class LocationProvider extends ChangeNotifier {
     stopLocationTracking();
     super.dispose();
   }
-}
-
-enum LocationAccuracy {
-  unknown,
-  low,
-  medium,
-  high,
-  best,
 }

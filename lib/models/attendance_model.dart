@@ -135,6 +135,33 @@ class AttendanceSession {
   }
 }
 
+// A view model for displaying student attendance history
+class StudentAttendanceRecordView {
+  final String sessionId;
+  final String course;
+  final int classNumber;
+  final String? batch;
+  final DateTime sessionDate;
+  final bool isPresent;
+  final String studentId;
+  final String studentName;
+  final String enrollmentNumber;
+  final DateTime markedAt;
+
+  StudentAttendanceRecordView({
+    required this.sessionId,
+    required this.course,
+    required this.classNumber,
+    this.batch,
+    required this.sessionDate,
+    required this.isPresent,
+    required this.studentId,
+    required this.studentName,
+    required this.enrollmentNumber,
+    required this.markedAt,
+  });
+}
+
 class AttendanceRecord {
   final String studentId;
   final String studentName;

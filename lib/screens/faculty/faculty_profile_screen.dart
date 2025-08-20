@@ -21,25 +21,8 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
   final _departmentController = TextEditingController();
   
   bool _isEditing = false;
-  bool _isLoading = false;
   List<String> _assignedCourses = [];
-  List<String> _assignedClasses = [];
-  
-  // Available options
-  final List<String> _availableCourses = [
-    'BTECH',
-    'CIVIL',
-    'MECHANICAL',
-    'ELECTRICAL',
-    'COMPUTER SCIENCE',
-    'ELECTRONICS',
-    'CHEMICAL',
-    'AEROSPACE',
-  ];
-
-  final List<String> _availableClasses = [
-    '1', '2', '3', '4', '5', '6', '7', '8', '9'
-  ];
+  List<int> _assignedClasses = [];
 
   @override
   void initState() {
@@ -69,48 +52,35 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    setState(() {
-      _isLoading = true;
-    });
-    
-    try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      
-      await authProvider.updateProfile(
-        name: _nameController.text.trim(),
-        department: _departmentController.text.trim(),
-        assignedCourses: _assignedCourses,
-        assignedClasses: _assignedClasses,
-      );
-      
-      if (mounted) {
-        setState(() {
-          _isEditing = false;
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Profile updated successfully'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+    if (_formKey.currentState?.validate() != true) return;
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    final updates = {
+      'name': _nameController.text.trim(),
+      'department': _departmentController.text.trim(),
+      'assignedCourses': _assignedCourses,
+      'assignedClasses': _assignedClasses,
+    };
+
+    final success = await authProvider.updateProfile(updates);
+
+    if (success && mounted) {
+      setState(() {
+        _isEditing = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Profile updated successfully'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
           ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        _showErrorDialog('Update Failed', e.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+        ),
+      );
+    } else if (mounted) {
+      _showErrorDialog('Update Failed', authProvider.errorMessage ?? 'An unknown error occurred.');
     }
   }
 
@@ -447,6 +417,10 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
   }
 
   Widget _buildProfileForm() {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final availableCourses = authProvider.validCourses;
+    final availableClasses = List.generate(9, (i) => i + 1);
+
     return Form(
       key: _formKey,
       child: Column(
@@ -507,10 +481,11 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
           const SizedBox(height: 24),
           
           // Assigned Courses
-          _buildAssignedSection(
+          _buildAssignedSection<String>(
             title: 'Assigned Courses',
             items: _assignedCourses,
-            availableItems: _availableCourses,
+            availableItems: availableCourses,
+            itemToString: (s) => s,
             onChanged: (items) {
               setState(() {
                 _assignedCourses = items;
@@ -521,10 +496,11 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
           const SizedBox(height: 16),
           
           // Assigned Classes
-          _buildAssignedSection(
+          _buildAssignedSection<int>(
             title: 'Assigned Classes',
             items: _assignedClasses,
-            availableItems: _availableClasses,
+            availableItems: availableClasses,
+            itemToString: (i) => i.toString(),
             onChanged: (items) {
               setState(() {
                 _assignedClasses = items;
@@ -567,11 +543,12 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
     );
   }
 
-  Widget _buildAssignedSection({
+  Widget _buildAssignedSection<T>({
     required String title,
-    required List<String> items,
-    required List<String> availableItems,
-    required ValueChanged<List<String>> onChanged,
+    required List<T> items,
+    required List<T> availableItems,
+    required String Function(T) itemToString,
+    required ValueChanged<List<T>> onChanged,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -592,14 +569,14 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (items.isEmpty) ..[
+                if (items.isEmpty)
                   Text(
                     'No ${title.toLowerCase()} assigned',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppTheme.textSecondary,
                     ),
-                  ),
-                ] else ..[
+                  )
+                else
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -620,17 +597,17 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              item,
+                              itemToString(item),
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: AppTheme.primaryColor,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            if (_isEditing) ..[
+                            if (_isEditing) ...[
                               const SizedBox(width: 4),
                               GestureDetector(
                                 onTap: () {
-                                  final newItems = List<String>.from(items);
+                                  final newItems = List<T>.from(items);
                                   newItems.remove(item);
                                   onChanged(newItems);
                                 },
@@ -646,9 +623,8 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
                       );
                     }).toList(),
                   ),
-                ],
                 
-                if (_isEditing) ..[
+                if (_isEditing) ...[
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
@@ -658,7 +634,7 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
                         .map((item) {
                       return GestureDetector(
                         onTap: () {
-                          final newItems = List<String>.from(items);
+                          final newItems = List<T>.from(items);
                           newItems.add(item);
                           onChanged(newItems);
                         },
@@ -684,7 +660,7 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                item,
+                                itemToString(item),
                                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                   color: AppTheme.textSecondary,
                                 ),
@@ -705,91 +681,78 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
   }
 
   Widget _buildActions() {
-    return Column(
-      children: [
-        if (_isEditing) ..[
-          // Save and Cancel buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _isLoading ? null : _cancelEdit,
+    return Consumer<AuthProvider>(
+      builder: (context, authProvider, child) {
+        return Column(
+          children: [
+            if (_isEditing) ...[
+              // Save and Cancel buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: authProvider.isLoading ? null : _cancelEdit,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.textSecondary,
+                        side: BorderSide(
+                          color: AppTheme.textSecondary.withOpacity(0.5),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: GlassmorphicButton(
+                      onPressed: authProvider.isLoading ? null : _saveProfile,
+                      child: authProvider.isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Text(
+                              'Save Changes',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              // Logout button
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _logout,
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Logout'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.textSecondary,
-                    side: BorderSide(
-                      color: AppTheme.textSecondary.withOpacity(0.5),
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(
+                      color: Colors.red,
                     ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
-                  child: const Text('Cancel'),
-                ),
-              ),
-              
-              const SizedBox(width: 16),
-              
-              Expanded(
-                child: GlassmorphicButton(
-                  onPressed: _isLoading ? null : _saveProfile,
-                  child: _isLoading
-                      ? Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  AppTheme.textPrimary,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              'Saving...',
-                              style: TextStyle(
-                                color: AppTheme.textPrimary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        )
-                      : Text(
-                          'Save Changes',
-                          style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                 ),
               ),
             ],
-          ),
-        ] else ..[
-          // Logout button
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _logout,
-              icon: const Icon(Icons.logout),
-              label: const Text('Logout'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.red,
-                side: const BorderSide(
-                  color: Colors.red,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-            ),
-          ),
-        ],
-      ],
+          ],
+        );
+      },
     );
   }
 }

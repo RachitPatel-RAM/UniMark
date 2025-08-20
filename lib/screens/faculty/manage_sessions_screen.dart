@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/attendance_provider.dart';
-import '../../models/user_model.dart';
+import '../../models/attendance_model.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/glassmorphic_widgets.dart';
 import 'session_details_screen.dart';
@@ -18,14 +18,12 @@ class ManageSessionsScreen extends StatefulWidget {
 class _ManageSessionsScreenState extends State<ManageSessionsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     
-    // Load faculty sessions
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSessions();
     });
@@ -38,26 +36,17 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
   }
 
   Future<void> _loadSessions() async {
-    setState(() {
-      _isLoading = true;
-    });
+    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     
     try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
-      
       if (authProvider.currentUser != null) {
-        await attendanceProvider.loadFacultySessions(authProvider.currentUser!.id);
+        // TODO: Implement loadFacultySessions in AttendanceProvider
+        // await attendanceProvider.loadFacultySessions(authProvider: authProvider);
       }
     } catch (e) {
       if (mounted) {
         _showErrorDialog('Error Loading Sessions', e.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
       }
     }
   }
@@ -94,7 +83,7 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
     }
   }
 
-  Future<void> _viewSessionDetails(dynamic session) async {
+  Future<void> _viewSessionDetails(AttendanceSession session) async {
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => SessionDetailsScreen(session: session),
@@ -267,32 +256,36 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
           ),
           
           // Refresh Button
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.glassmorphicFill,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: AppTheme.glassmorphicBorder,
-              ),
-            ),
-            child: IconButton(
-              onPressed: _isLoading ? null : _loadSessions,
-              icon: _isLoading
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          AppTheme.primaryColor,
+          Consumer<AttendanceProvider>(
+            builder: (context, provider, child) {
+              return Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.glassmorphicFill,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppTheme.glassmorphicBorder,
+                  ),
+                ),
+                child: IconButton(
+                  onPressed: provider.isLoading ? null : _loadSessions,
+                  icon: provider.isLoading
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppTheme.primaryColor,
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          Icons.refresh,
+                          color: AppTheme.textSecondary,
                         ),
-                      ),
-                    )
-                  : Icon(
-                      Icons.refresh,
-                      color: AppTheme.textSecondary,
-                    ),
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -348,16 +341,16 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
   Widget _buildActiveSessionsList() {
     return Consumer<AttendanceProvider>(
       builder: (context, attendanceProvider, child) {
-        final activeSessions = attendanceProvider.facultySessions
-            .where((session) => session.isActive)
-            .toList();
-        
-        if (_isLoading) {
+        if (attendanceProvider.isLoading) {
           return const Center(
             child: CircularProgressIndicator(),
           );
         }
         
+        final activeSessions = attendanceProvider.attendanceHistory
+            .where((session) => session.isActive)
+            .toList();
+
         if (activeSessions.isEmpty) {
           return _buildEmptyState(
             icon: Icons.event_busy_outlined,
@@ -377,6 +370,7 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
               return _ActiveSessionCard(
                 session: session,
                 onEndSession: () => _endSession(session.id),
+                onViewDetails: () => _viewSessionDetails(session),
               ).animate().fadeIn(
                 delay: Duration(milliseconds: index * 100),
                 duration: 600.ms,
@@ -395,15 +389,15 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
   Widget _buildPastSessionsList() {
     return Consumer<AttendanceProvider>(
       builder: (context, attendanceProvider, child) {
-        final pastSessions = attendanceProvider.facultySessions
-            .where((session) => !session.isActive)
-            .toList();
-        
-        if (_isLoading) {
+        if (attendanceProvider.isLoading) {
           return const Center(
             child: CircularProgressIndicator(),
           );
         }
+
+        final pastSessions = attendanceProvider.attendanceHistory
+            .where((session) => !session.isActive)
+            .toList();
         
         if (pastSessions.isEmpty) {
           return _buildEmptyState(
@@ -423,6 +417,7 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
               final session = pastSessions[index];
               return _PastSessionCard(
                 session: session,
+                onViewDetails: () => _viewSessionDetails(session),
               ).animate().fadeIn(
                 delay: Duration(milliseconds: index * 100),
                 duration: 600.ms,
@@ -478,16 +473,19 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
 }
 
 class _ActiveSessionCard extends StatelessWidget {
-  final dynamic session; // AttendanceSession
+  final AttendanceSession session;
   final VoidCallback onEndSession;
+  final VoidCallback onViewDetails;
 
   const _ActiveSessionCard({
     required this.session,
     required this.onEndSession,
+    required this.onViewDetails,
   });
 
   @override
   Widget build(BuildContext context) {
+    final presentCount = session.attendanceRecords.values.where((r) => r.isPresent).length;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: GlassmorphicCard(
@@ -526,16 +524,14 @@ class _ActiveSessionCard extends StatelessWidget {
                         Text(
                           'LIVE',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold,
-                          ),
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold,
+                              ),
                         ),
                       ],
                     ),
                   ),
-                  
                   const Spacer(),
-                  
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -551,65 +547,58 @@ class _ActiveSessionCard extends StatelessWidget {
                     child: Text(
                       session.sessionCode,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppTheme.primaryColor,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      ),
+                            color: AppTheme.primaryColor,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
+                          ),
                     ),
                   ),
                 ],
               ),
-              
               const SizedBox(height: 12),
-              
               // Session details
               Text(
                 '${session.course} - Class ${session.classNumber}',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.bold,
-                ),
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
-              
-              if (session.batch != null) ..[
+              if (session.batch != null) ...[
                 const SizedBox(height: 4),
                 Text(
                   'Batch: ${session.batch}',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppTheme.textSecondary,
-                  ),
+                        color: AppTheme.textSecondary,
+                      ),
                 ),
               ],
-              
               const SizedBox(height: 12),
-              
               // Stats
               Row(
                 children: [
                   _buildStatItem(
                     context,
                     Icons.people_outline,
-                    '${session.presentCount}',
+                    '$presentCount',
                     'Present',
                   ),
                   const SizedBox(width: 24),
                   _buildStatItem(
                     context,
                     Icons.access_time_outlined,
-                    '${session.createdAt.hour.toString().padLeft(2, '0')}:${session.createdAt.minute.toString().padLeft(2, '0')}',
+                    '${session.startTime.hour.toString().padLeft(2, '0')}:${session.startTime.minute.toString().padLeft(2, '0')}',
                     'Started',
                   ),
                 ],
               ),
-              
               const SizedBox(height: 16),
-              
               // Actions
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _viewSessionDetails(session),
+                      onPressed: onViewDetails,
                       icon: const Icon(Icons.visibility_outlined),
                       label: const Text('View Details'),
                       style: OutlinedButton.styleFrom(
@@ -623,9 +612,7 @@ class _ActiveSessionCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  
                   const SizedBox(width: 12),
-                  
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: onEndSession,
@@ -666,16 +653,16 @@ class _ActiveSessionCard extends StatelessWidget {
         Text(
           value,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: AppTheme.textPrimary,
-            fontWeight: FontWeight.w600,
-          ),
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
         ),
         const SizedBox(width: 2),
         Text(
           label,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: AppTheme.textSecondary,
-          ),
+                color: AppTheme.textSecondary,
+              ),
         ),
       ],
     );
@@ -683,14 +670,19 @@ class _ActiveSessionCard extends StatelessWidget {
 }
 
 class _PastSessionCard extends StatelessWidget {
-  final dynamic session; // AttendanceSession
+  final AttendanceSession session;
+  final VoidCallback onViewDetails;
 
-  const _PastSessionCard({required this.session});
+  const _PastSessionCard({
+    required this.session,
+    required this.onViewDetails,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final canEdit = DateTime.now().difference(session.createdAt).inHours < 48;
-    
+    final canEdit = DateTime.now().difference(session.startTime).inHours < 48;
+    final presentCount = session.attendanceRecords.values.where((r) => r.isPresent).length;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: GlassmorphicCard(
@@ -709,23 +701,22 @@ class _PastSessionCard extends StatelessWidget {
                         Text(
                           '${session.course} - Class ${session.classNumber}',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.bold,
-                          ),
+                                color: AppTheme.textPrimary,
+                                fontWeight: FontWeight.bold,
+                              ),
                         ),
-                        if (session.batch != null) ..[
+                        if (session.batch != null) ...[
                           const SizedBox(height: 2),
                           Text(
                             'Batch: ${session.batch}',
                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppTheme.textSecondary,
-                            ),
+                                  color: AppTheme.textSecondary,
+                                ),
                           ),
                         ],
                       ],
                     ),
                   ),
-                  
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
@@ -738,16 +729,14 @@ class _PastSessionCard extends StatelessWidget {
                     child: Text(
                       'ENDED',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.textSecondary,
-                        fontWeight: FontWeight.bold,
-                      ),
+                            color: AppTheme.textSecondary,
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
                   ),
                 ],
               ),
-              
               const SizedBox(height: 12),
-              
               // Date and stats
               Row(
                 children: [
@@ -758,10 +747,10 @@ class _PastSessionCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '${session.createdAt.day}/${session.createdAt.month}/${session.createdAt.year}',
+                    '${session.startTime.day}/${session.startTime.month}/${session.startTime.year}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
+                          color: AppTheme.textSecondary,
+                        ),
                   ),
                   const SizedBox(width: 16),
                   Icon(
@@ -771,22 +760,20 @@ class _PastSessionCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '${session.presentCount} present',
+                    '$presentCount present',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
+                          color: AppTheme.textSecondary,
+                        ),
                   ),
                 ],
               ),
-              
               const SizedBox(height: 12),
-              
               // Actions
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _viewSessionDetails(session),
+                      onPressed: onViewDetails,
                       icon: const Icon(Icons.visibility_outlined),
                       label: const Text('View Details'),
                       style: OutlinedButton.styleFrom(
@@ -800,12 +787,11 @@ class _PastSessionCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  
-                  if (canEdit) ..[
+                  if (canEdit) ...[
                     const SizedBox(width: 12),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => _viewSessionDetails(session),
+                        onPressed: onViewDetails,
                         icon: const Icon(Icons.edit_outlined),
                         label: const Text('Edit'),
                         style: OutlinedButton.styleFrom(

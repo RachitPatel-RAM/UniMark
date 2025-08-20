@@ -52,23 +52,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
-    try {
-      final success = await authProvider.updateProfile(
-        name: _nameController.text.trim(),
-        course: _courseController.text.trim().toUpperCase(),
-        classNumber: int.parse(_classController.text.trim()),
-        batch: _batchController.text.trim().isEmpty ? null : _batchController.text.trim(),
-      );
+    final currentUser = authProvider.currentUser as StudentModel;
 
-      if (success) {
+    final updates = {
+      'name': _nameController.text.trim(),
+      'course': _courseController.text.trim().toUpperCase(),
+      'classNumber': int.tryParse(_classController.text.trim()) ?? currentUser.classNumber,
+      'batch': _batchController.text.trim().isEmpty ? null : _batchController.text.trim(),
+    };
+
+    final success = await authProvider.updateProfile(updates);
+
+    if (success) {
+      if (mounted) {
         setState(() {
           _isEditing = false;
         });
-        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Profile updated successfully'),
@@ -79,11 +81,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         );
-      } else {
+      }
+    } else {
+      if (mounted) {
         _showErrorDialog(authProvider.errorMessage ?? 'Failed to update profile');
       }
-    } catch (e) {
-      _showErrorDialog('An error occurred: ${e.toString()}');
     }
   }
 

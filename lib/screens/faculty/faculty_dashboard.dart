@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/attendance_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../models/user_model.dart';
+import '../../models/attendance_model.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/glassmorphic_widgets.dart';
 import '../auth/login_screen.dart';
@@ -29,18 +30,22 @@ class _FacultyDashboardState extends State<FacultyDashboard> {
     super.initState();
     _pageController = PageController();
     
-    // Initialize location services
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final locationProvider = Provider.of<LocationProvider>(context, listen: false);
-      locationProvider.checkLocationStatus();
-      
-      // Load faculty sessions
-      final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      if (authProvider.currentUser != null) {
-        attendanceProvider.loadFacultySessions(authProvider.currentUser!.id);
-      }
+      _fetchData();
     });
+  }
+
+  Future<void> _fetchData() async {
+    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    locationProvider.checkLocationStatus();
+
+    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (authProvider.currentUser != null) {
+      // TODO: Implement loadFacultySessions in AttendanceProvider
+      // For now, this will do nothing, but the structure is here.
+      // await attendanceProvider.loadFacultySessions(authProvider: authProvider);
+    }
   }
 
   @override
@@ -146,66 +151,96 @@ class _FacultyDashboardState extends State<FacultyDashboard> {
   }
 }
 
-class _FacultyDashboardHome extends StatelessWidget {
+class _FacultyDashboardHome extends StatefulWidget {
+  @override
+  State<_FacultyDashboardHome> createState() => _FacultyDashboardHomeState();
+}
+
+class _FacultyDashboardHomeState extends State<_FacultyDashboardHome> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchData();
+    });
+  }
+
+  Future<void> _fetchData() async {
+    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    locationProvider.checkLocationStatus();
+
+    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (authProvider.currentUser != null) {
+      // TODO: Implement loadFacultySessions in AttendanceProvider
+      // For now, this will do nothing, but the structure is here.
+      // await attendanceProvider.loadFacultySessions(authProvider: authProvider);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            _buildHeader(context).animate().fadeIn(duration: 600.ms).slideY(
-              begin: -0.3,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Quick Actions
-            _buildQuickActions(context).animate().fadeIn(
-              delay: 200.ms,
-              duration: 600.ms,
-            ).slideX(
-              begin: -0.3,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Active Sessions
-            _buildActiveSessions(context).animate().fadeIn(
-              delay: 400.ms,
-              duration: 600.ms,
-            ).slideX(
-              begin: 0.3,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Recent Sessions
-            _buildRecentSessions(context).animate().fadeIn(
-              delay: 600.ms,
-              duration: 600.ms,
-            ).slideY(
-              begin: 0.3,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Location Status
-            _buildLocationStatus(context).animate().fadeIn(
-              delay: 800.ms,
-              duration: 600.ms,
-            ),
-          ],
+      child: RefreshIndicator(
+        onRefresh: _fetchData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              _buildHeader(context).animate().fadeIn(duration: 600.ms).slideY(
+                begin: -0.3,
+                end: 0,
+                curve: Curves.easeOutBack,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Quick Actions
+              _buildQuickActions(context).animate().fadeIn(
+                delay: 200.ms,
+                duration: 600.ms,
+              ).slideX(
+                begin: -0.3,
+                end: 0,
+                curve: Curves.easeOutBack,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Active Sessions
+              _buildActiveSessions(context).animate().fadeIn(
+                delay: 400.ms,
+                duration: 600.ms,
+              ).slideX(
+                begin: 0.3,
+                end: 0,
+                curve: Curves.easeOutBack,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Recent Sessions
+              _buildRecentSessions(context).animate().fadeIn(
+                delay: 600.ms,
+                duration: 600.ms,
+              ).slideY(
+                begin: 0.3,
+                end: 0,
+                curve: Curves.easeOutBack,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Location Status
+              _buildLocationStatus(context).animate().fadeIn(
+                delay: 800.ms,
+                duration: 600.ms,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -380,7 +415,11 @@ class _FacultyDashboardHome extends StatelessWidget {
   Widget _buildActiveSessions(BuildContext context) {
     return Consumer<AttendanceProvider>(
       builder: (context, attendanceProvider, child) {
-        final activeSessions = attendanceProvider.facultySessions
+        if (attendanceProvider.isLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final activeSessions = attendanceProvider.attendanceHistory
             .where((session) => session.isActive)
             .toList();
         
@@ -423,11 +462,11 @@ class _FacultyDashboardHome extends StatelessWidget {
             
             const SizedBox(height: 16),
             
-            if (activeSessions.isNotEmpty) ..[
+            if (activeSessions.isNotEmpty)
               ...activeSessions.take(2).map((session) => 
                 _ActiveSessionCard(session: session)
-              ).toList(),
-            ] else ..[
+              ).toList()
+            else
               GlassmorphicCard(
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
@@ -459,7 +498,6 @@ class _FacultyDashboardHome extends StatelessWidget {
                   ),
                 ),
               ),
-            ],
           ],
         );
       },
@@ -469,7 +507,11 @@ class _FacultyDashboardHome extends StatelessWidget {
   Widget _buildRecentSessions(BuildContext context) {
     return Consumer<AttendanceProvider>(
       builder: (context, attendanceProvider, child) {
-        final recentSessions = attendanceProvider.facultySessions
+        if (attendanceProvider.isLoading) {
+          return const SizedBox.shrink(); // Avoid showing another loader
+        }
+
+        final recentSessions = attendanceProvider.attendanceHistory
             .where((session) => !session.isActive)
             .take(3)
             .toList();
@@ -489,7 +531,6 @@ class _FacultyDashboardHome extends StatelessWidget {
                 ),
                 TextButton(
                   onPressed: () {
-                    // Navigate to manage sessions
                     final pageController = context.findAncestorStateOfType<_FacultyDashboardState>()?._pageController;
                     pageController?.animateToPage(
                       2,
@@ -510,11 +551,11 @@ class _FacultyDashboardHome extends StatelessWidget {
             
             const SizedBox(height: 16),
             
-            if (recentSessions.isNotEmpty) ..[
+            if (recentSessions.isNotEmpty)
               ...recentSessions.map((session) => 
                 _RecentSessionCard(session: session)
-              ).toList(),
-            ] else ..[
+              ).toList()
+            else
               GlassmorphicCard(
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
@@ -538,7 +579,6 @@ class _FacultyDashboardHome extends StatelessWidget {
                   ),
                 ),
               ),
-            ],
           ],
         );
       },
@@ -683,12 +723,14 @@ class _QuickActionCard extends StatelessWidget {
 }
 
 class _ActiveSessionCard extends StatelessWidget {
-  final dynamic session; // AttendanceSession
+  final AttendanceSession session;
 
   const _ActiveSessionCard({required this.session});
 
   @override
   Widget build(BuildContext context) {
+    final presentCount = session.attendanceRecords.values.where((r) => r.isPresent).length;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       child: GlassmorphicCard(
@@ -715,9 +757,9 @@ class _ActiveSessionCard extends StatelessWidget {
                   Text(
                     'LIVE',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.green,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                   const Spacer(),
                   Container(
@@ -732,37 +774,32 @@ class _ActiveSessionCard extends StatelessWidget {
                     child: Text(
                       session.sessionCode,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppTheme.primaryColor,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      ),
+                            color: AppTheme.primaryColor,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
+                          ),
                     ),
                   ),
                 ],
               ),
-              
               const SizedBox(height: 12),
-              
               Text(
                 '${session.course} - Class ${session.classNumber}',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.bold,
-                ),
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
-              
-              if (session.batch != null) ..[
+              if (session.batch != null) ...[
                 const SizedBox(height: 4),
                 Text(
                   'Batch: ${session.batch}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textSecondary,
-                  ),
+                        color: AppTheme.textSecondary,
+                      ),
                 ),
               ],
-              
               const SizedBox(height: 8),
-              
               Row(
                 children: [
                   Icon(
@@ -772,10 +809,10 @@ class _ActiveSessionCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '${session.presentCount} present',
+                    '$presentCount present',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
+                          color: AppTheme.textSecondary,
+                        ),
                   ),
                   const SizedBox(width: 16),
                   Icon(
@@ -785,10 +822,10 @@ class _ActiveSessionCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'Started ${session.createdAt.hour.toString().padLeft(2, '0')}:${session.createdAt.minute.toString().padLeft(2, '0')}',
+                    'Started ${session.startTime.hour.toString().padLeft(2, '0')}:${session.startTime.minute.toString().padLeft(2, '0')}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
+                          color: AppTheme.textSecondary,
+                        ),
                   ),
                 ],
               ),
@@ -801,12 +838,14 @@ class _ActiveSessionCard extends StatelessWidget {
 }
 
 class _RecentSessionCard extends StatelessWidget {
-  final dynamic session; // AttendanceSession
+  final AttendanceSession session;
 
   const _RecentSessionCard({required this.session});
 
   @override
   Widget build(BuildContext context) {
+    final presentCount = session.attendanceRecords.values.where((r) => r.isPresent).length;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       child: GlassmorphicCard(
@@ -826,9 +865,7 @@ class _RecentSessionCard extends StatelessWidget {
                   size: 20,
                 ),
               ),
-              
               const SizedBox(width: 12),
-              
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -836,20 +873,19 @@ class _RecentSessionCard extends StatelessWidget {
                     Text(
                       '${session.course} - Class ${session.classNumber}',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: AppTheme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     Text(
-                      '${session.createdAt.day}/${session.createdAt.month}/${session.createdAt.year} • ${session.presentCount} present',
+                      '${session.startTime.day}/${session.startTime.month}/${session.startTime.year} • $presentCount present',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
+                            color: AppTheme.textSecondary,
+                          ),
                     ),
                   ],
                 ),
               ),
-              
               Icon(
                 Icons.arrow_forward_ios,
                 color: AppTheme.textSecondary,

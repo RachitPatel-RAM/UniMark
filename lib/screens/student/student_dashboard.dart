@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/attendance_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../models/user_model.dart';
+import '../../models/attendance_model.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/glassmorphic_widgets.dart';
 import '../auth/login_screen.dart';
@@ -132,66 +133,94 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 }
 
-class _DashboardHome extends StatelessWidget {
+class _DashboardHome extends StatefulWidget {
+  @override
+  State<_DashboardHome> createState() => _DashboardHomeState();
+}
+
+class _DashboardHomeState extends State<_DashboardHome> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchData();
+    });
+  }
+
+  Future<void> _fetchData() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
+
+    // Fetch both stats and history in parallel
+    await Future.wait([
+      attendanceProvider.loadAttendanceStats(authProvider: authProvider),
+      attendanceProvider.loadStudentAttendanceHistory(authProvider: authProvider),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            _buildHeader(context).animate().fadeIn(duration: 600.ms).slideY(
-              begin: -0.3,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Quick Actions
-            _buildQuickActions(context).animate().fadeIn(
-              delay: 200.ms,
-              duration: 600.ms,
-            ).slideX(
-              begin: -0.3,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Attendance Stats
-            _buildAttendanceStats(context).animate().fadeIn(
-              delay: 400.ms,
-              duration: 600.ms,
-            ).slideX(
-              begin: 0.3,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Recent Sessions
-            _buildRecentSessions(context).animate().fadeIn(
-              delay: 600.ms,
-              duration: 600.ms,
-            ).slideY(
-              begin: 0.3,
-              end: 0,
-              curve: Curves.easeOutBack,
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Location Status
-            _buildLocationStatus(context).animate().fadeIn(
-              delay: 800.ms,
-              duration: 600.ms,
-            ),
-          ],
+      child: RefreshIndicator(
+        onRefresh: _fetchData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              _buildHeader(context).animate().fadeIn(duration: 600.ms).slideY(
+                begin: -0.3,
+                end: 0,
+                curve: Curves.easeOutBack,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Quick Actions
+              _buildQuickActions(context).animate().fadeIn(
+                delay: 200.ms,
+                duration: 600.ms,
+              ).slideX(
+                begin: -0.3,
+                end: 0,
+                curve: Curves.easeOutBack,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Attendance Stats
+              _buildAttendanceStats(context).animate().fadeIn(
+                delay: 400.ms,
+                duration: 600.ms,
+              ).slideX(
+                begin: 0.3,
+                end: 0,
+                curve: Curves.easeOutBack,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Recent Sessions
+              _buildRecentSessions(context).animate().fadeIn(
+                delay: 600.ms,
+                duration: 600.ms,
+              ).slideY(
+                begin: 0.3,
+                end: 0,
+                curve: Curves.easeOutBack,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Location Status
+              _buildLocationStatus(context).animate().fadeIn(
+                delay: 800.ms,
+                duration: 600.ms,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -345,10 +374,10 @@ class _DashboardHome extends StatelessWidget {
                     ),
                   ],
                 ),
-                
                 const SizedBox(height: 16),
-                
-                if (attendanceProvider.attendanceStats != null) ..[
+                if (attendanceProvider.isLoading)
+                  const Center(child: CircularProgressIndicator())
+                else if (attendanceProvider.attendanceStats != null)
                   Row(
                     children: [
                       Expanded(
@@ -363,7 +392,7 @@ class _DashboardHome extends StatelessWidget {
                       Expanded(
                         child: _StatCard(
                           title: 'Present',
-                          value: attendanceProvider.attendanceStats!.presentCount.toString(),
+                          value: attendanceProvider.attendanceStats!.presentSessions.toString(),
                           icon: Icons.check_circle,
                           color: Colors.green,
                         ),
@@ -374,16 +403,16 @@ class _DashboardHome extends StatelessWidget {
                           title: 'Percentage',
                           value: '${attendanceProvider.attendanceStats!.attendancePercentage.toStringAsFixed(1)}%',
                           icon: Icons.percent,
-                          color: attendanceProvider.attendanceStats!.attendancePercentage >= 75 
-                              ? Colors.green 
-                              : attendanceProvider.attendanceStats!.attendancePercentage >= 50 
-                                  ? Colors.orange 
+                          color: attendanceProvider.attendanceStats!.attendancePercentage >= 75
+                              ? Colors.green
+                              : attendanceProvider.attendanceStats!.attendancePercentage >= 50
+                                  ? Colors.orange
                                   : Colors.red,
                         ),
                       ),
                     ],
-                  ),
-                ] else ..[
+                  )
+                else
                   Center(
                     child: Column(
                       children: [
@@ -402,7 +431,6 @@ class _DashboardHome extends StatelessWidget {
                       ],
                     ),
                   ),
-                ],
               ],
             ),
           ),
@@ -429,7 +457,6 @@ class _DashboardHome extends StatelessWidget {
                 ),
                 TextButton(
                   onPressed: () {
-                    // Navigate to full history
                     final pageController = context.findAncestorStateOfType<_StudentDashboardState>()?._pageController;
                     pageController?.animateToPage(
                       2,
@@ -447,15 +474,15 @@ class _DashboardHome extends StatelessWidget {
                 ),
               ],
             ),
-            
             const SizedBox(height: 16),
-            
-            if (attendanceProvider.studentAttendanceHistory.isNotEmpty) ..[
+            if (attendanceProvider.isLoading)
+              const Center(child: CircularProgressIndicator())
+            else if (attendanceProvider.studentAttendanceHistory.isNotEmpty)
               ...attendanceProvider.studentAttendanceHistory
                   .take(3)
                   .map((record) => _SessionCard(record: record))
-                  .toList(),
-            ] else ..[
+                  .toList()
+            else
               GlassmorphicCard(
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
@@ -486,7 +513,6 @@ class _DashboardHome extends StatelessWidget {
                   ),
                 ),
               ),
-            ],
           ],
         );
       },
@@ -683,7 +709,7 @@ class _StatCard extends StatelessWidget {
 }
 
 class _SessionCard extends StatelessWidget {
-  final dynamic record; // AttendanceRecord
+  final AttendanceRecord record;
 
   const _SessionCard({required this.record});
 
@@ -699,7 +725,7 @@ class _SessionCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: record.isPresent 
+                  color: record.isPresent
                       ? Colors.green.withOpacity(0.2)
                       : Colors.red.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(8),
@@ -710,36 +736,33 @@ class _SessionCard extends StatelessWidget {
                   size: 20,
                 ),
               ),
-              
               const SizedBox(width: 12),
-              
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${record.course} - Class ${record.classNumber}',
+                      'Enrollment: ${record.enrollmentNumber}',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: AppTheme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     Text(
-                      'Session on ${record.sessionDate.day}/${record.sessionDate.month}/${record.sessionDate.year}',
+                      'Marked on ${record.markedAt.day}/${record.markedAt.month}/${record.markedAt.year}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
+                            color: AppTheme.textSecondary,
+                          ),
                     ),
                   ],
                 ),
               ),
-              
               Text(
-                record.isPresent ? 'Present' : 'Absent',
+                record.status,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: record.isPresent ? Colors.green : Colors.red,
-                  fontWeight: FontWeight.w600,
-                ),
+                      color: record.isPresent ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ],
           ),

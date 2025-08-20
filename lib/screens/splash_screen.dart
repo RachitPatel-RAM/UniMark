@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
-import '../widgets/glassmorphic_widgets.dart';
 import 'auth/login_screen.dart';
+import 'student/student_dashboard.dart';
+import 'faculty/faculty_dashboard.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -15,18 +18,48 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    _navigateToLogin();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAuthStatus();
+    });
   }
 
-  Future<void> _navigateToLogin() async {
-    await Future.delayed(const Duration(seconds: 3));
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => const LoginScreen(),
-        ),
-      );
+  void _checkAuthStatus() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    if (authProvider.isInitialized) {
+      _navigate(authProvider);
+      return;
     }
+
+    late void Function() listener;
+    listener = () {
+      if (authProvider.isInitialized) {
+        _navigate(authProvider);
+        authProvider.removeListener(listener);
+      }
+    };
+    authProvider.addListener(listener);
+  }
+
+  void _navigate(AuthProvider authProvider) {
+    if (!mounted) return;
+
+    Widget destination;
+    if (authProvider.isLoggedIn) {
+      if (authProvider.isStudent) {
+        destination = const StudentDashboard();
+      } else if (authProvider.isFaculty) {
+        destination = const FacultyDashboard();
+      } else {
+        destination = const LoginScreen(); // Default for other roles or if role is null
+      }
+    } else {
+      destination = const LoginScreen();
+    }
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => destination),
+    );
   }
 
   @override

@@ -1,17 +1,17 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/attendance_model.dart';
 import '../models/user_model.dart';
 import '../services/attendance_service.dart';
 import '../services/location_service.dart';
+import '../services/exceptions.dart';
 import 'auth_provider.dart';
 
 class AttendanceProvider extends ChangeNotifier {
   final AttendanceService _attendanceService = AttendanceService();
-  final LocationService _locationService = LocationService();
   
   // Current session state
   AttendanceSession? _currentSession;
-  List<AttendanceRecord> _currentSessionAttendance = [];
   bool _isLoading = false;
   String? _errorMessage;
   
@@ -21,7 +21,7 @@ class AttendanceProvider extends ChangeNotifier {
   
   // Attendance history
   List<AttendanceSession> _attendanceHistory = [];
-  List<AttendanceRecord> _studentAttendanceHistory = [];
+  List<StudentAttendanceRecordView> _studentAttendanceHistory = [];
   AttendanceStats? _attendanceStats;
   
   // Filters for reports
@@ -34,15 +34,14 @@ class AttendanceProvider extends ChangeNotifier {
 
   // Getters
   AttendanceSession? get currentSession => _currentSession;
-  List<AttendanceRecord> get currentSessionAttendance => _currentSessionAttendance;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get isCreatingSession => _isCreatingSession;
   bool get isJoiningSession => _isJoiningSession;
-  bool get hasActiveSession => _currentSession != null && !_currentSession!.isEnded;
+  bool get hasActiveSession => _currentSession != null && _currentSession!.isActive;
   
   List<AttendanceSession> get attendanceHistory => _attendanceHistory;
-  List<AttendanceRecord> get studentAttendanceHistory => _studentAttendanceHistory;
+  List<StudentAttendanceRecordView> get studentAttendanceHistory => _studentAttendanceHistory;
   AttendanceStats? get attendanceStats => _attendanceStats;
   
   // Filter getters
@@ -60,27 +59,23 @@ class AttendanceProvider extends ChangeNotifier {
     String? batch,
     required AuthProvider authProvider,
   }) async {
+    _setCreatingSession(true);
+    _clearError();
+
     try {
-      _setCreatingSession(true);
-      _clearError();
-
       final user = authProvider.currentUser;
-      if (user == null || user.role == UserRole.student) {
-        throw Exception('Unauthorized: Only faculty can create sessions');
+      if (user is! FacultyModel) {
+        throw AuthException('Only faculty can create sessions.');
       }
 
-      // Get current location
-      final location = await _locationService.getCurrentLocation();
+      // TODO: The service should get the location, not the provider.
+      // This requires refactoring LocationService to not depend on a provider.
+      final locationService = LocationService();
+      final location = await locationService.getCurrentLocation();
       if (location == null) {
-        throw Exception('Unable to get current location. Please enable GPS and try again.');
+        throw AuthException('Unable to get current location. Please enable GPS.');
       }
 
-      // Check location accuracy
-      if (!await _locationService.isLocationAccurate()) {
-        throw Exception('Location accuracy is too low. Please move to an open area and try again.');
-      }
-
-      // Create session
       _currentSession = await _attendanceService.createSession(
         course: course.toUpperCase(),
         classNumber: classNumber,
@@ -90,15 +85,14 @@ class AttendanceProvider extends ChangeNotifier {
         latitude: location.latitude,
         longitude: location.longitude,
       );
-
-      _currentSessionAttendance.clear();
       
-      // Start listening to session updates
-      _listenToSessionUpdates();
-      
+      notifyListeners();
       return true;
+    } on AuthException catch (e) {
+      _setError(e.message);
+      return false;
     } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+      _setError('An unknown error occurred during session creation.');
       return false;
     } finally {
       _setCreatingSession(false);
@@ -110,49 +104,37 @@ class AttendanceProvider extends ChangeNotifier {
     required String sessionCode,
     required AuthProvider authProvider,
   }) async {
+    _setJoiningSession(true);
+    _clearError();
+
     try {
-      _setJoiningSession(true);
-      _clearError();
-
       final user = authProvider.currentUser;
-      if (user == null || user.role != UserRole.student) {
-        throw Exception('Unauthorized: Only students can join sessions');
+      if (user is! StudentModel) {
+        throw AuthException('Only students can join sessions.');
       }
 
-      final student = user as StudentModel;
-
-      // Get current location
-      final location = await _locationService.getCurrentLocation();
+      // TODO: The service should get the location.
+      final locationService = LocationService();
+      final location = await locationService.getCurrentLocation();
       if (location == null) {
-        throw Exception('Unable to get current location. Please enable GPS and try again.');
+        throw AuthException('Unable to get current location. Please enable GPS.');
       }
 
-      // Check location accuracy
-      if (!await _locationService.isLocationAccurate()) {
-        throw Exception('Location accuracy is too low. Please move to an open area and try again.');
-      }
-
-      // Join session
       final result = await _attendanceService.joinSession(
         sessionCode: sessionCode.toUpperCase(),
-        studentId: student.id,
-        studentName: student.name,
-        enrollmentNumber: student.enrollmentNumber,
-        course: student.course,
-        classNumber: student.classNumber,
-        batch: student.batch,
+        student: user,
         latitude: location.latitude,
         longitude: location.longitude,
       );
 
-      if (result['success'] == true) {
-        _currentSession = result['session'];
-        return true;
-      } else {
-        throw Exception(result['message'] ?? 'Failed to join session');
-      }
+      _currentSession = result;
+      notifyListeners();
+      return true;
+    } on AuthException catch (e) {
+      _setError(e.message);
+      return false;
     } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+      _setError('An unknown error occurred while joining the session.');
       return false;
     } finally {
       _setJoiningSession(false);
@@ -160,50 +142,64 @@ class AttendanceProvider extends ChangeNotifier {
   }
 
   // End current session (Faculty only)
-  Future<bool> endSession(AuthProvider authProvider) async {
+  Future<bool> endSession({
+    required String sessionId,
+    required AuthProvider authProvider,
+  }) async {
+    _setLoading(true);
+    _clearError();
+
     try {
-      _setLoading(true);
-      _clearError();
-
-      final user = authProvider.currentUser;
-      if (user == null || user.role == UserRole.student) {
-        throw Exception('Unauthorized: Only faculty can end sessions');
+      if (authProvider.currentUser is! FacultyModel) {
+        throw AuthException('Only faculty can end sessions.');
       }
 
-      if (_currentSession == null) {
-        throw Exception('No active session to end');
-      }
+      await _attendanceService.endSession(sessionId);
 
-      await _attendanceService.endSession(_currentSession!.id);
-      
-      _currentSession = null;
-      _currentSessionAttendance.clear();
-      
+      if (_currentSession?.id == sessionId) {
+        _currentSession = null;
+      }
+      // Also remove from history list to update UI immediately
+      _attendanceHistory.removeWhere((s) => s.id == sessionId);
+
+      notifyListeners();
       return true;
+    } on AuthException catch(e) {
+      _setError(e.message);
+      return false;
     } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+      _setError('An unknown error occurred while ending the session.');
       return false;
     } finally {
       _setLoading(false);
     }
   }
 
-  // Listen to session updates
-  void _listenToSessionUpdates() {
-    if (_currentSession == null) return;
-
-    _attendanceService.getSessionAttendanceStream(_currentSession!.id).listen(
-      (attendanceList) {
-        _currentSessionAttendance = attendanceList;
-        notifyListeners();
-      },
-      onError: (error) {
-        _setError('Failed to load session updates: $error');
-      },
-    );
+  // Get stream of attendance records for a session
+  Stream<List<AttendanceRecord>> getSessionAttendanceStream(String sessionId) {
+    return _attendanceService.getSessionAttendanceStream(sessionId);
   }
 
-  // Load attendance history (Faculty/Admin)
+  // Load attendance history for a faculty member
+  Future<void> loadFacultySessions({required AuthProvider authProvider}) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      if (authProvider.currentUser is! FacultyModel) {
+        throw AuthException('User is not a faculty member.');
+      }
+      _attendanceHistory = await _attendanceService.getFacultySessions(authProvider.currentUser!.id);
+    } on AuthException catch (e) {
+      _setError(e.message);
+    } catch (e) {
+      _setError('Failed to load session history.');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Load attendance history (for reports)
   Future<void> loadAttendanceHistory({
     required AuthProvider authProvider,
     String? course,
@@ -212,28 +208,27 @@ class AttendanceProvider extends ChangeNotifier {
     DateTime? startDate,
     DateTime? endDate,
   }) async {
+    _setLoading(true);
+    _clearError();
+
     try {
-      _setLoading(true);
-      _clearError();
-
       final user = authProvider.currentUser;
-      if (user == null) {
-        throw Exception('User not authenticated');
-      }
-
-      if (user.role == UserRole.student) {
-        throw Exception('Unauthorized: Students cannot access attendance history');
+      if (user is! FacultyModel) {
+        throw AuthException('Only faculty members can view reports.');
       }
 
       _attendanceHistory = await _attendanceService.getAttendanceHistory(
+        facultyId: user.id,
         course: course,
         classNumber: classNumber,
         batch: batch,
         startDate: startDate,
         endDate: endDate,
       );
+    } on AuthException catch (e) {
+      _setError(e.message);
     } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+      _setError('Failed to load attendance reports.');
     } finally {
       _setLoading(false);
     }
@@ -243,37 +238,29 @@ class AttendanceProvider extends ChangeNotifier {
   Future<void> loadStudentAttendanceHistory({
     required AuthProvider authProvider,
     String? studentId,
-    DateTime? startDate,
-    DateTime? endDate,
   }) async {
+    _setLoading(true);
+    _clearError();
+
     try {
-      _setLoading(true);
-      _clearError();
-
       final user = authProvider.currentUser;
-      if (user == null) {
-        throw Exception('User not authenticated');
+      if (user == null) throw AuthException('User not authenticated.');
+
+      final targetStudentId = (user is StudentModel) ? user.id : studentId;
+      if (targetStudentId == null) {
+        throw AuthException('Student ID is required.');
       }
 
-      String targetStudentId;
-      if (user.role == UserRole.student) {
-        // Students can only view their own history
-        targetStudentId = user.id;
-      } else {
-        // Faculty/Admin can view any student's history
-        if (studentId == null) {
-          throw Exception('Student ID is required');
-        }
-        targetStudentId = studentId;
-      }
-
+      // TODO: This service method needs to be created/refactored
+      // It should return a list of combined session and record data.
+      // For now, we assume it returns what we need to build the view model.
       _studentAttendanceHistory = await _attendanceService.getStudentAttendanceHistory(
         studentId: targetStudentId,
-        startDate: startDate,
-        endDate: endDate,
       );
+    } on AuthException catch (e) {
+      _setError(e.message);
     } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+      _setError('Failed to load student attendance history.');
     } finally {
       _setLoading(false);
     }
@@ -283,38 +270,23 @@ class AttendanceProvider extends ChangeNotifier {
   Future<void> loadAttendanceStats({
     required AuthProvider authProvider,
     String? studentId,
-    String? course,
-    int? classNumber,
-    String? batch,
   }) async {
+    _setLoading(true);
+    _clearError();
     try {
-      _setLoading(true);
-      _clearError();
-
       final user = authProvider.currentUser;
-      if (user == null) {
-        throw Exception('User not authenticated');
-      }
+      if (user == null) throw AuthException('User not authenticated.');
 
-      String targetStudentId;
-      if (user.role == UserRole.student) {
-        // Students can only view their own stats
-        targetStudentId = user.id;
-        final student = user as StudentModel;
-        course = student.course;
-        classNumber = student.classNumber;
-        batch = student.batch;
-      } else {
-        // Faculty/Admin can view any student's stats
-        if (studentId == null) {
-          throw Exception('Student ID is required');
-        }
-        targetStudentId = studentId;
+      final targetStudentId = (user is StudentModel) ? user.id : studentId;
+      if (targetStudentId == null) {
+        throw AuthException('Student ID is required for stats.');
       }
 
       _attendanceStats = await _attendanceService.getStudentAttendanceStats(targetStudentId);
+    } on AuthException catch (e) {
+      _setError(e.message);
     } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+      _setError('Failed to load attendance statistics.');
     } finally {
       _setLoading(false);
     }
@@ -328,30 +300,28 @@ class AttendanceProvider extends ChangeNotifier {
     required AuthProvider authProvider,
     String? reason,
   }) async {
+    _setLoading(true);
+    _clearError();
     try {
-      _setLoading(true);
-      _clearError();
-
       final user = authProvider.currentUser;
-      if (user == null || user.role == UserRole.student) {
-        throw Exception('Unauthorized: Only faculty and admin can edit attendance');
+      if (user is! FacultyModel) {
+        throw AuthException('Only faculty can edit attendance.');
       }
 
       await _attendanceService.editAttendance(
-        sessionId,
-        studentId,
-        isPresent,
-        reason,
+        sessionId: sessionId,
+        studentId: studentId,
+        isPresent: isPresent,
+        editorId: user.id,
+        reason: reason,
       );
 
-      // Refresh current session attendance if editing current session
-      if (_currentSession?.id == sessionId) {
-        _listenToSessionUpdates();
-      }
-
       return true;
+    } on AuthException catch (e) {
+      _setError(e.message);
+      return false;
     } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+      _setError('Failed to update attendance.');
       return false;
     } finally {
       _setLoading(false);

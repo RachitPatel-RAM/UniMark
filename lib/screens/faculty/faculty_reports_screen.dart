@@ -16,30 +16,9 @@ class FacultyReportsScreen extends StatefulWidget {
 
 class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
   String? _selectedCourse;
-  String? _selectedClass;
+  int? _selectedClass;
   String? _selectedBatch;
   DateTimeRange? _selectedDateRange;
-  bool _isLoading = false;
-  
-  // Available options
-  final List<String> _courses = [
-    'BTECH',
-    'CIVIL',
-    'MECHANICAL',
-    'ELECTRICAL',
-    'COMPUTER SCIENCE',
-    'ELECTRONICS',
-    'CHEMICAL',
-    'AEROSPACE',
-  ];
-
-  final List<String> _classes = [
-    '1', '2', '3', '4', '5', '6', '7', '8', '9'
-  ];
-
-  final List<String> _batches = [
-    'A', 'B', 'C', 'D', 'E'
-  ];
 
   @override
   void initState() {
@@ -58,37 +37,21 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
   }
 
   Future<void> _loadReports() async {
-    setState(() {
-      _isLoading = true;
-    });
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
     
     try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
-      
-      if (authProvider.currentUser != null) {
-        // Load faculty sessions for reports
-        await attendanceProvider.loadFacultySessions(authProvider.currentUser!.id);
-        
-        // TODO: Load filtered attendance statistics based on selected filters
-        // This would involve calling a method like:
-        // await attendanceProvider.loadAttendanceStats(
-        //   facultyId: authProvider.currentUser!.id,
-        //   course: _selectedCourse,
-        //   classNumber: _selectedClass,
-        //   batch: _selectedBatch,
-        //   dateRange: _selectedDateRange,
-        // );
-      }
+      await attendanceProvider.loadAttendanceHistory(
+        authProvider: authProvider,
+        course: _selectedCourse,
+        classNumber: _selectedClass,
+        batch: _selectedBatch,
+        startDate: _selectedDateRange?.start,
+        endDate: _selectedDateRange?.end,
+      );
     } catch (e) {
       if (mounted) {
         _showErrorDialog('Error Loading Reports', e.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
       }
     }
   }
@@ -251,32 +214,36 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
           ),
           
           // Refresh Button
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.glassmorphicFill,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: AppTheme.glassmorphicBorder,
-              ),
-            ),
-            child: IconButton(
-              onPressed: _isLoading ? null : _loadReports,
-              icon: _isLoading
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          AppTheme.primaryColor,
+          Consumer<AttendanceProvider>(
+            builder: (context, provider, child) {
+              return Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.glassmorphicFill,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppTheme.glassmorphicBorder,
+                  ),
+                ),
+                child: IconButton(
+                  onPressed: provider.isLoading ? null : _loadReports,
+                  icon: provider.isLoading
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppTheme.primaryColor,
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          Icons.refresh,
+                          color: AppTheme.textSecondary,
                         ),
-                      ),
-                    )
-                  : Icon(
-                      Icons.refresh,
-                      color: AppTheme.textSecondary,
-                    ),
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -284,6 +251,12 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
   }
 
   Widget _buildFilters() {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final faculty = authProvider.currentUser as FacultyModel?;
+    final assignedCourses = faculty?.assignedCourses ?? [];
+    final assignedClasses = faculty?.assignedClasses.map((c) => c.toString()).toList() ?? [];
+    final batches = ['A', 'B', 'C', 'D', 'E']; // Can be hardcoded or moved to config
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       child: GlassmorphicCard(
@@ -330,7 +303,7 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
                     child: _buildFilterDropdown(
                       label: 'Course',
                       value: _selectedCourse,
-                      items: _courses,
+                      items: assignedCourses,
                       onChanged: (value) {
                         setState(() {
                           _selectedCourse = value;
@@ -345,11 +318,11 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
                   Expanded(
                     child: _buildFilterDropdown(
                       label: 'Class',
-                      value: _selectedClass,
-                      items: _classes,
+                      value: _selectedClass?.toString(),
+                      items: assignedClasses,
                       onChanged: (value) {
                         setState(() {
-                          _selectedClass = value;
+                          _selectedClass = value != null ? int.tryParse(value) : null;
                           _selectedBatch = null; // Reset dependent filters
                         });
                         _loadReports();
@@ -368,7 +341,7 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
                     child: _buildFilterDropdown(
                       label: 'Batch',
                       value: _selectedBatch,
-                      items: _batches,
+                      items: batches,
                       onChanged: (value) {
                         setState(() {
                           _selectedBatch = value;
@@ -509,7 +482,7 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
   Widget _buildReportsContent() {
     return Consumer<AttendanceProvider>(
       builder: (context, attendanceProvider, child) {
-        if (_isLoading) {
+        if (attendanceProvider.isLoading) {
           return const Center(
             child: CircularProgressIndicator(),
           );
@@ -544,10 +517,13 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
   }
 
   Widget _buildOverviewStats(AttendanceProvider attendanceProvider) {
-    final sessions = attendanceProvider.facultySessions;
+    final sessions = attendanceProvider.attendanceHistory;
     final totalSessions = sessions.length;
     final activeSessions = sessions.where((s) => s.isActive).length;
-    final totalAttendance = sessions.fold<int>(0, (sum, session) => sum + session.presentCount);
+    final totalAttendance = sessions.fold<int>(0, (sum, session) {
+      final presentCount = session.attendanceRecords.values.where((r) => r.isPresent).length;
+      return sum + presentCount;
+    });
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -659,7 +635,7 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
   }
 
   Widget _buildSessionSummary(AttendanceProvider attendanceProvider) {
-    final sessions = attendanceProvider.facultySessions;
+    final sessions = attendanceProvider.attendanceHistory;
     
     // Group sessions by course
     final Map<String, List<dynamic>> sessionsByCourse = {};
@@ -683,7 +659,7 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
         
         const SizedBox(height: 16),
         
-        if (sessionsByCourse.isEmpty) ..[
+        if (sessionsByCourse.isEmpty)
           GlassmorphicCard(
             child: Padding(
               padding: const EdgeInsets.all(32.0),
@@ -706,13 +682,16 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
                 ),
               ),
             ),
-          ),
-        ] else ..[
+          )
+        else
           ...sessionsByCourse.entries.map((entry) {
             final course = entry.key;
             final courseSessions = entry.value;
             final totalSessions = courseSessions.length;
-            final totalAttendance = courseSessions.fold<int>(0, (sum, session) => sum + session.presentCount);
+            final totalAttendance = courseSessions.fold<int>(0, (sum, session) {
+              final presentCount = session.attendanceRecords.values.where((r) => r.isPresent).length;
+              return sum + presentCount;
+            });
             
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
@@ -779,13 +758,12 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
               ),
             );
           }).toList(),
-        ],
       ],
     );
   }
 
   Widget _buildRecentSessions(AttendanceProvider attendanceProvider) {
-    final recentSessions = attendanceProvider.facultySessions
+    final recentSessions = attendanceProvider.attendanceHistory
         .take(5)
         .toList();
     
@@ -819,7 +797,7 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
         
         const SizedBox(height: 16),
         
-        if (recentSessions.isEmpty) ..[
+        if (recentSessions.isEmpty)
           GlassmorphicCard(
             child: Padding(
               padding: const EdgeInsets.all(32.0),
@@ -842,9 +820,10 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
                 ),
               ),
             ),
-          ),
-        ] else ..[
+          )
+        else
           ...recentSessions.map((session) {
+            final presentCount = session.attendanceRecords.values.where((r) => r.isPresent).length;
             return Container(
               margin: const EdgeInsets.only(bottom: 8),
               child: GlassmorphicCard(
@@ -881,7 +860,7 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
                               ),
                             ),
                             Text(
-                              '${session.createdAt.day}/${session.createdAt.month}/${session.createdAt.year} • ${session.presentCount} present',
+                              '${session.startTime.day}/${session.startTime.month}/${session.startTime.year} • $presentCount present',
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: AppTheme.textSecondary,
                               ),
@@ -914,7 +893,6 @@ class _FacultyReportsScreenState extends State<FacultyReportsScreen> {
               ),
             );
           }).toList(),
-        ],
       ],
     );
   }

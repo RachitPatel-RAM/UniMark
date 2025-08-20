@@ -17,7 +17,17 @@ class JoinSessionScreen extends StatefulWidget {
 class _JoinSessionScreenState extends State<JoinSessionScreen> {
   final _sessionCodeController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  bool _isJoining = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
+    _sessionCodeController.addListener(() {
+      if (attendanceProvider.errorMessage != null) {
+        attendanceProvider.clearError();
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -26,52 +36,38 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
   }
 
   Future<void> _joinSession() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
 
-    setState(() {
-      _isJoining = true;
-    });
+    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
+    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    try {
-      final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
-      final locationProvider = Provider.of<LocationProvider>(context, listen: false);
-
-      // Check location status first
-      if (!locationProvider.isLocationReady) {
-        await locationProvider.checkLocationStatus();
-        if (!locationProvider.isLocationReady) {
-          _showErrorDialog('Location services are required to join a session. Please enable location and try again.');
-          return;
-        }
-      }
-
-      // Get current location
-      await locationProvider.getCurrentLocation();
-      if (locationProvider.currentLocation == null) {
-        _showErrorDialog('Unable to get your current location. Please try again.');
+    // Check location status first
+    if (!locationProvider.isLocationReady) {
+      await locationProvider.checkLocationStatus();
+      if (!locationProvider.isLocationReady && mounted) {
+        _showErrorDialog('Location services are required to join a session. Please enable location and try again.');
         return;
       }
+    }
 
-      // Join session
-      final success = await attendanceProvider.joinSession(
-        sessionCode: _sessionCodeController.text.trim().toUpperCase(),
-        authProvider: authProvider,
-      );
+    // Get current location
+    await locationProvider.getCurrentLocation();
+    if (locationProvider.currentLocation == null && mounted) {
+      _showErrorDialog('Unable to get your current location. Please try again.');
+      return;
+    }
 
-      if (success) {
-        _showSuccessDialog();
-        _sessionCodeController.clear();
-      } else {
-        _showErrorDialog(attendanceProvider.errorMessage ?? 'Failed to join session. Please try again.');
-      }
-    } catch (e) {
-      _showErrorDialog('An error occurred: ${e.toString()}');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isJoining = false;
-        });
-      }
+    final success = await attendanceProvider.joinSession(
+      sessionCode: _sessionCodeController.text.trim().toUpperCase(),
+      authProvider: authProvider,
+    );
+
+    if (success && mounted) {
+      _showSuccessDialog();
+      _sessionCodeController.clear();
+    } else if (mounted) {
+      _showErrorDialog(attendanceProvider.errorMessage ?? 'Failed to join session. Please try again.');
     }
   }
 
@@ -382,14 +378,38 @@ class _JoinSessionScreenState extends State<JoinSessionScreen> {
   }
 
   Widget _buildJoinButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: GlassmorphicButton(
-        text: 'Join Session',
-        onPressed: _isJoining ? null : _joinSession,
-        isLoading: _isJoining,
-        icon: Icons.login,
-      ),
+    return Consumer<AttendanceProvider>(
+      builder: (context, attendanceProvider, child) {
+        return SizedBox(
+          width: double.infinity,
+          child: GlassmorphicButton(
+            onPressed: attendanceProvider.isJoiningSession ? null : _joinSession,
+            child: attendanceProvider.isJoiningSession
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.login, color: Colors.white),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Join Session',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                    ],
+                  ),
+          ),
+        );
+      },
     );
   }
 

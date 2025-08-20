@@ -22,42 +22,7 @@ class SessionDetailsScreen extends StatefulWidget {
 }
 
 class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
-  bool _isLoading = false;
-  List<AttendanceRecord> _attendanceRecords = [];
   String _filterStatus = 'All';
-  
-  @override
-  void initState() {
-    super.initState();
-    _loadAttendanceRecords();
-  }
-
-  Future<void> _loadAttendanceRecords() async {
-    setState(() {
-      _isLoading = true;
-    });
-    
-    try {
-      final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
-      await attendanceProvider.getSessionAttendance(widget.session.id);
-      
-      if (mounted) {
-        setState(() {
-          _attendanceRecords = attendanceProvider.sessionAttendance;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        _showErrorDialog('Error', 'Failed to load attendance records: $e');
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
 
   Future<void> _endSession() async {
     final confirmed = await _showConfirmDialog(
@@ -94,17 +59,21 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   Future<void> _editAttendance(AttendanceRecord record) async {
     final newStatus = await _showEditAttendanceDialog(record);
     if (newStatus == null || newStatus == record.status) return;
-    
+
+    final isPresent = newStatus == 'Present';
+
     try {
       final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       await attendanceProvider.editAttendance(
-        widget.session.id,
-        record.studentId,
-        newStatus,
+        sessionId: widget.session.id,
+        studentId: record.studentId,
+        isPresent: isPresent,
+        authProvider: authProvider,
       );
       
       if (mounted) {
-        await _loadAttendanceRecords(); // Refresh the list
+        // The stream will update the UI automatically, but a snackbar is good feedback.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Attendance updated for ${record.studentName}'),
@@ -287,15 +256,9 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     );
   }
 
-  List<AttendanceRecord> get _filteredRecords {
-    if (_filterStatus == 'All') {
-      return _attendanceRecords;
-    }
-    return _attendanceRecords.where((record) => record.status == _filterStatus).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
+    final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -306,62 +269,81 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
             children: [
               // Header
               _buildHeader().animate().fadeIn(duration: 600.ms).slideY(
-                begin: -0.3,
-                end: 0,
-                curve: Curves.easeOutBack,
-              ),
-              
+                    begin: -0.3,
+                    end: 0,
+                    curve: Curves.easeOutBack,
+                  ),
+
               // Content
               Expanded(
-                child: _isLoading
-                    ? _buildLoadingState()
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Session Info Card
-                            _buildSessionInfoCard().animate().fadeIn(
-                              delay: 200.ms,
-                              duration: 600.ms,
-                            ).slideX(
-                              begin: -0.3,
-                              end: 0,
-                              curve: Curves.easeOutBack,
-                            ),
-                            
-                            const SizedBox(height: 24),
-                            
-                            // Statistics Card
-                            _buildStatisticsCard().animate().fadeIn(
-                              delay: 400.ms,
-                              duration: 600.ms,
-                            ).slideX(
-                              begin: 0.3,
-                              end: 0,
-                              curve: Curves.easeOutBack,
-                            ),
-                            
-                            const SizedBox(height: 24),
-                            
-                            // Filter and Attendance List
-                            _buildAttendanceSection().animate().fadeIn(
-                              delay: 600.ms,
-                              duration: 600.ms,
-                            ).slideY(
-                              begin: 0.3,
-                              end: 0,
-                              curve: Curves.easeOutBack,
-                            ),
-                          ],
-                        ),
+                child: StreamBuilder<List<AttendanceRecord>>(
+                  stream: attendanceProvider.getSessionAttendanceStream(widget.session.id),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return _buildLoadingState();
+                    }
+                    if (snapshot.hasError) {
+                      return Center(child: Text('Error: ${snapshot.error}'));
+                    }
+                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      return _buildEmptyContent();
+                    }
+
+                    final records = snapshot.data!;
+                    final filteredRecords = _getFilteredRecords(records);
+
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Session Info Card
+                          _buildSessionInfoCard().animate().fadeIn(
+                                delay: 200.ms,
+                                duration: 600.ms,
+                              ).slideX(
+                                begin: -0.3,
+                                end: 0,
+                                curve: Curves.easeOutBack,
+                              ),
+                          const SizedBox(height: 24),
+                          // Statistics Card
+                          _buildStatisticsCard(records).animate().fadeIn(
+                                delay: 400.ms,
+                                duration: 600.ms,
+                              ).slideX(
+                                begin: 0.3,
+                                end: 0,
+                                curve: Curves.easeOutBack,
+                              ),
+                          const SizedBox(height: 24),
+                          // Filter and Attendance List
+                          _buildAttendanceSection(filteredRecords).animate().fadeIn(
+                                delay: 600.ms,
+                                duration: 600.ms,
+                              ).slideY(
+                                begin: 0.3,
+                                end: 0,
+                                curve: Curves.easeOutBack,
+                              ),
+                        ],
                       ),
+                    );
+                  },
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  List<AttendanceRecord> _getFilteredRecords(List<AttendanceRecord> records) {
+    if (_filterStatus == 'All') {
+      return records;
+    }
+    return records.where((record) => record.status == _filterStatus).toList();
   }
 
   Widget _buildHeader() {
@@ -400,7 +382,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
                   ),
                 ),
                 Text(
-                  '${widget.session.course} - Class ${widget.session.className}',
+                  '${widget.session.course} - Class ${widget.session.classNumber}',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppTheme.textSecondary,
                   ),
@@ -579,10 +561,40 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     );
   }
 
-  Widget _buildStatisticsCard() {
-    final presentCount = _attendanceRecords.where((r) => r.status == 'Present').length;
-    final absentCount = _attendanceRecords.where((r) => r.status == 'Absent').length;
-    final totalCount = _attendanceRecords.length;
+  Widget _buildEmptyContent() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.people_outline,
+            size: 64,
+            color: AppTheme.textSecondary.withOpacity(0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No attendance records yet',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppTheme.textSecondary,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Students who join the session will appear here.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.textSecondary.withOpacity(0.7),
+                ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatisticsCard(List<AttendanceRecord> records) {
+    final presentCount = records.where((r) => r.status == 'Present').length;
+    final absentCount = records.where((r) => r.status == 'Absent').length;
+    final totalCount = records.length;
     final percentage = totalCount > 0 ? (presentCount / totalCount * 100) : 0.0;
     
     return GlassmorphicCard(
@@ -690,7 +702,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     );
   }
 
-  Widget _buildAttendanceSection() {
+  Widget _buildAttendanceSection(List<AttendanceRecord> filteredRecords) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -750,7 +762,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
         
         const SizedBox(height: 16),
         
-        if (_filteredRecords.isEmpty) ..[
+        if (filteredRecords.isEmpty)
           GlassmorphicCard(
             child: Padding(
               padding: const EdgeInsets.all(40.0),
@@ -781,9 +793,9 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
                 ],
               ),
             ),
-          ),
-        ] else ..[
-          ..._filteredRecords.asMap().entries.map((entry) {
+          )
+        else
+          ...filteredRecords.asMap().entries.map((entry) {
             final index = entry.key;
             final record = entry.value;
             
@@ -797,7 +809,6 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
               curve: Curves.easeOutBack,
             );
           }).toList(),
-        ],
       ],
     );
   }

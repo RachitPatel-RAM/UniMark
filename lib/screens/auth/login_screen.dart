@@ -21,7 +21,23 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
-  bool _rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Clear error message when user starts typing
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _emailController.addListener(() {
+      if (authProvider.errorMessage != null) {
+        authProvider.clearError();
+      }
+    });
+    _passwordController.addListener(() {
+      if (authProvider.errorMessage != null) {
+        authProvider.clearError();
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -31,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_formKey.currentState?.validate() != true) {
       return;
     }
 
@@ -46,7 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Navigate based on user role
       final user = authProvider.currentUser;
       if (user != null) {
-        if (user.role.name == 'student') {
+        if (user.role == UserRole.student) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const StudentDashboard()),
           );
@@ -231,46 +247,25 @@ class _LoginScreenState extends State<LoginScreen> {
                   
                   const SizedBox(height: 16),
                   
-                  // Remember Me and Forgot Password
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Checkbox(
-                            value: _rememberMe,
-                            onChanged: (value) {
-                              setState(() {
-                                _rememberMe = value ?? false;
-                              });
-                            },
-                            activeColor: AppTheme.primaryColor,
+                  // Forgot Password
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const ForgotPasswordScreen(),
                           ),
-                          Text(
-                            'Remember me',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => const ForgotPasswordScreen(),
-                            ),
-                          );
-                        },
-                        child: Text(
-                          'Forgot Password?',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppTheme.primaryColor,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        );
+                      },
+                      child: Text(
+                        'Forgot Password?',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppTheme.primaryColor,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ],
+                    ),
                   ),
                   
                   const SizedBox(height: 24),

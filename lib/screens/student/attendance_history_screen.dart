@@ -30,10 +30,18 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
   Future<void> _loadAttendanceData() async {
     final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
+
     if (authProvider.currentUser != null) {
-      await attendanceProvider.loadStudentAttendanceHistory(authProvider.currentUser!.id);
-      await attendanceProvider.loadAttendanceStats(authProvider.currentUser!.id);
+      await Future.wait([
+        attendanceProvider.loadStudentAttendanceHistory(
+          authProvider: authProvider,
+          studentId: authProvider.currentUser!.id,
+        ),
+        attendanceProvider.loadAttendanceStats(
+          authProvider: authProvider,
+          studentId: authProvider.currentUser!.id,
+        ),
+      ]);
     }
   }
 
@@ -326,7 +334,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                       child: _StatItem(
                         icon: Icons.cancel,
                         label: 'Absent',
-                        value: stats.absentCount.toString(),
+                        value: (stats.totalSessions - stats.presentSessions).toString(),
                         color: Colors.red,
                       ),
                     ),
@@ -509,126 +517,50 @@ class _AttendanceRecordCard extends StatelessWidget {
       child: GlassmorphicCard(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: record.isPresent 
-                          ? Colors.green.withOpacity(0.2)
-                          : Colors.red.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      record.isPresent ? Icons.check_circle : Icons.cancel,
-                      color: record.isPresent ? Colors.green : Colors.red,
-                      size: 20,
-                    ),
-                  ),
-                  
-                  const SizedBox(width: 12),
-                  
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${record.course} - Class ${record.classNumber}',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        if (record.batch != null) ..[
-                          Text(
-                            'Batch: ${record.batch}',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: record.isPresent 
-                          ? Colors.green.withOpacity(0.2)
-                          : Colors.red.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: record.isPresent 
-                            ? Colors.green.withOpacity(0.5)
-                            : Colors.red.withOpacity(0.5),
-                      ),
-                    ),
-                    child: Text(
-                      record.isPresent ? 'Present' : 'Absent',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: record.isPresent ? Colors.green : Colors.red,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: record.isPresent
+                      ? Colors.green.withOpacity(0.2)
+                      : Colors.red.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  record.isPresent ? Icons.check_circle : Icons.cancel,
+                  color: record.isPresent ? Colors.green : Colors.red,
+                  size: 20,
+                ),
               ),
-              
-              const SizedBox(height: 12),
-              
-              Row(
-                children: [
-                  Icon(
-                    Icons.calendar_today_outlined,
-                    size: 16,
-                    color: AppTheme.textSecondary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${record.sessionDate.day}/${record.sessionDate.month}/${record.sessionDate.year}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                  
-                  const SizedBox(width: 16),
-                  
-                  Icon(
-                    Icons.access_time_outlined,
-                    size: 16,
-                    color: AppTheme.textSecondary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${record.sessionDate.hour.toString().padLeft(2, '0')}:${record.sessionDate.minute.toString().padLeft(2, '0')}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                  
-                  if (record.markedAt != null) ..[
-                    const Spacer(),
-                    Icon(
-                      Icons.check_outlined,
-                      size: 16,
-                      color: AppTheme.textSecondary,
-                    ),
-                    const SizedBox(width: 4),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      'Marked at ${record.markedAt!.hour.toString().padLeft(2, '0')}:${record.markedAt!.minute.toString().padLeft(2, '0')}',
+                      'Enrollment: ${record.enrollmentNumber}',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Marked on ${record.markedAt.day}/${record.markedAt.month}/${record.markedAt.year}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
+                            color: AppTheme.textSecondary,
+                          ),
                     ),
                   ],
-                ],
+                ),
+              ),
+              Text(
+                record.status,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: record.isPresent ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ],
           ),
