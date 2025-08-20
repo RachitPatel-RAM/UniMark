@@ -28,7 +28,7 @@ class UserModel {
       'id': id,
       'name': name,
       'email': email,
-      'role': role.toString().split('.').last,
+      'role': role.name,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
       'deviceId': deviceId,
@@ -38,13 +38,10 @@ class UserModel {
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
-      id: map['id'] ?? '',
-      name: map['name'] ?? '',
-      email: map['email'] ?? '',
-      role: UserRole.values.firstWhere(
-        (e) => e.toString().split('.').last == map['role'],
-        orElse: () => UserRole.student,
-      ),
+      id: map['id'],
+      name: map['name'],
+      email: map['email'],
+      role: UserRole.values.byName(map['role'] ?? UserRole.student.name),
       createdAt: (map['createdAt'] as Timestamp).toDate(),
       updatedAt: (map['updatedAt'] as Timestamp).toDate(),
       deviceId: map['deviceId'],
@@ -109,16 +106,16 @@ class StudentModel extends UserModel {
 
   factory StudentModel.fromMap(Map<String, dynamic> map) {
     return StudentModel(
-      id: map['id'] ?? '',
-      name: map['name'] ?? '',
-      email: map['email'] ?? '',
+      id: map['id'],
+      name: map['name'],
+      email: map['email'],
       createdAt: (map['createdAt'] as Timestamp).toDate(),
       updatedAt: (map['updatedAt'] as Timestamp).toDate(),
       deviceId: map['deviceId'],
       isActive: map['isActive'] ?? true,
-      enrollmentNumber: map['enrollmentNumber'] ?? '',
-      course: map['course'] ?? '',
-      classNumber: map['classNumber'] ?? 1,
+      enrollmentNumber: map['enrollmentNumber'],
+      course: map['course'],
+      classNumber: map['classNumber'],
       batch: map['batch'],
     );
   }
@@ -185,14 +182,14 @@ class FacultyModel extends UserModel {
 
   factory FacultyModel.fromMap(Map<String, dynamic> map) {
     return FacultyModel(
-      id: map['id'] ?? '',
-      name: map['name'] ?? '',
-      email: map['email'] ?? '',
+      id: map['id'],
+      name: map['name'],
+      email: map['email'],
       createdAt: (map['createdAt'] as Timestamp).toDate(),
       updatedAt: (map['updatedAt'] as Timestamp).toDate(),
       deviceId: map['deviceId'],
       isActive: map['isActive'] ?? true,
-      department: map['department'] ?? '',
+      department: map['department'],
       assignedCourses: List<String>.from(map['assignedCourses'] ?? []),
       assignedClasses: List<int>.from(map['assignedClasses'] ?? []),
     );

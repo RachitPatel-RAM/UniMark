@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/exceptions.dart';
+import '../config.dart';
 
 class AuthProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -27,30 +29,17 @@ class AuthProvider extends ChangeNotifier {
 
   // Initialize authentication state
   Future<void> _initializeAuth() async {
-    try {
-      _setLoading(true);
-      
-      // Listen to auth state changes
-      _authService.authStateChanges.listen((User? user) async {
-        if (user != null) {
-          await _loadUserData();
-        } else {
-          _currentUser = null;
-          notifyListeners();
-        }
-      });
-      
-      // Load current user if already logged in
-      if (_authService.currentUser != null) {
+    _setLoading(true);
+    _authService.authStateChanges.listen((User? user) async {
+      if (user != null) {
         await _loadUserData();
+      } else {
+        _currentUser = null;
       }
-      
       _isInitialized = true;
-    } catch (e) {
-      _setError('Failed to initialize authentication: $e');
-    } finally {
       _setLoading(false);
-    }
+      notifyListeners();
+    });
   }
 
   // Load user data from Firestore
@@ -58,9 +47,10 @@ class AuthProvider extends ChangeNotifier {
     try {
       _currentUser = await _authService.getCurrentUserData();
       _clearError();
+    } on AuthException catch (e) {
+      _setError(e.message);
+    } finally {
       notifyListeners();
-    } catch (e) {
-      _setError('Failed to load user data: $e');
     }
   }
 
@@ -80,39 +70,33 @@ class AuthProvider extends ChangeNotifier {
 
       // Validate inputs
       if (name.trim().isEmpty) {
-        throw Exception('Name is required');
+        throw AuthException('Name is required');
       }
       
       if (enrollmentNumber.trim().isEmpty) {
-        throw Exception('Enrollment number is required');
+        throw AuthException('Enrollment number is required');
       }
       
       if (course.trim().isEmpty) {
-        throw Exception('Course is required');
+        throw AuthException('Course is required');
       }
       
       if (!_authService.isValidCourse(course)) {
-        throw Exception('Invalid course. Valid courses: ${_authService.validCourses.join(', ')}');
+        throw AuthException('Invalid course. Valid courses: ${_authService.validCourses.join(', ')}');
       }
       
       if (classNumber < 1 || classNumber > 9) {
-        throw Exception('Class must be between 1 and 9');
+        throw AuthException('Class must be between 1 and 9');
       }
       
       if (password.length < 6) {
-        throw Exception('Password must be at least 6 characters');
+        throw WeakPasswordException();
       }
       
       if (password != confirmPassword) {
-        throw Exception('Passwords do not match');
+        throw AuthException('Passwords do not match');
       }
 
-      // Check if enrollment number already exists
-      if (await _authService.enrollmentNumberExists(enrollmentNumber)) {
-        throw Exception('Enrollment number already registered');
-      }
-
-      // Register student
       await _authService.registerStudent(
         name: name.trim(),
         enrollmentNumber: enrollmentNumber.trim().toUpperCase(),
@@ -122,12 +106,11 @@ class AuthProvider extends ChangeNotifier {
         password: password,
       );
 
-      // Load user data after successful registration
       await _loadUserData();
       
       return true;
-    } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+    } on AuthException catch (e) {
+      _setError(e.message);
       return false;
     } finally {
       _setLoading(false);
@@ -150,45 +133,44 @@ class AuthProvider extends ChangeNotifier {
 
       // Validate inputs
       if (name.trim().isEmpty) {
-        throw Exception('Name is required');
+        throw AuthException('Name is required');
       }
       
       if (email.trim().isEmpty) {
-        throw Exception('Email is required');
+        throw AuthException('Email is required');
       }
       
       if (!_isValidEmail(email)) {
-        throw Exception('Invalid email format');
+        throw InvalidEmailException();
       }
       
       if (department.trim().isEmpty) {
-        throw Exception('Department is required');
+        throw AuthException('Department is required');
       }
       
       if (assignedCourses.isEmpty) {
-        throw Exception('At least one course must be assigned');
+        throw AuthException('At least one course must be assigned');
       }
       
       if (assignedClasses.isEmpty) {
-        throw Exception('At least one class must be assigned');
+        throw AuthException('At least one class must be assigned');
       }
       
       if (password.length < 6) {
-        throw Exception('Password must be at least 6 characters');
+        throw WeakPasswordException();
       }
       
       if (password != confirmPassword) {
-        throw Exception('Passwords do not match');
+        throw AuthException('Passwords do not match');
       }
 
       // Validate courses
       for (String course in assignedCourses) {
         if (!_authService.isValidCourse(course)) {
-          throw Exception('Invalid course: $course');
+          throw AuthException('Invalid course: $course');
         }
       }
 
-      // Register faculty
       await _authService.registerFaculty(
         name: name.trim(),
         email: email.trim().toLowerCase(),
@@ -198,12 +180,11 @@ class AuthProvider extends ChangeNotifier {
         assignedClasses: assignedClasses,
       );
 
-      // Load user data after successful registration
       await _loadUserData();
       
       return true;
-    } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+    } on AuthException catch (e) {
+      _setError(e.message);
       return false;
     } finally {
       _setLoading(false);
@@ -217,26 +198,26 @@ class AuthProvider extends ChangeNotifier {
       _clearError();
 
       if (emailOrEnrollment.trim().isEmpty) {
-        throw Exception('Email or enrollment number is required');
+        throw AuthException('Email or enrollment number is required');
       }
       
       if (password.isEmpty) {
-        throw Exception('Password is required');
+        throw AuthException('Password is required');
       }
 
       String email = emailOrEnrollment.trim();
       
       // If it's not an email, assume it's an enrollment number
       if (!email.contains('@')) {
-        email = '${email.toLowerCase()}@unimark.edu';
+        email = '${email.toLowerCase()}@${AppConfig.emailDomain}';
       }
 
       await _authService.login(email, password);
       await _loadUserData();
       
       return true;
-    } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+    } on AuthException catch (e) {
+      _setError(e.message);
       return false;
     } finally {
       _setLoading(false);
@@ -250,8 +231,8 @@ class AuthProvider extends ChangeNotifier {
       await _authService.logout();
       _currentUser = null;
       _clearError();
-    } catch (e) {
-      _setError('Failed to logout: $e');
+    } on AuthException catch (e) {
+      _setError(e.message);
     } finally {
       _setLoading(false);
     }
@@ -264,17 +245,17 @@ class AuthProvider extends ChangeNotifier {
       _clearError();
 
       if (email.trim().isEmpty) {
-        throw Exception('Email is required');
+        throw AuthException('Email is required');
       }
       
       if (!_isValidEmail(email)) {
-        throw Exception('Invalid email format');
+        throw InvalidEmailException();
       }
 
       await _authService.resetPassword(email.trim());
       return true;
-    } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+    } on AuthException catch (e) {
+      _setError(e.message);
       return false;
     } finally {
       _setLoading(false);
@@ -291,8 +272,8 @@ class AuthProvider extends ChangeNotifier {
       await _loadUserData(); // Reload user data
       
       return true;
-    } catch (e) {
-      _setError(e.toString().replaceFirst('Exception: ', ''));
+    } on AuthException catch (e) {
+      _setError(e.message);
       return false;
     } finally {
       _setLoading(false);
@@ -317,11 +298,11 @@ class AuthProvider extends ChangeNotifier {
 
   void _clearError() {
     _errorMessage = null;
-    notifyListeners();
   }
 
   void clearError() {
-    _clearError();
+    _errorMessage = null;
+    notifyListeners();
   }
 
   bool _isValidEmail(String email) {

@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'dart:io';
 import '../models/user_model.dart';
+import '../services/exceptions.dart';
+import '../config.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -20,8 +22,8 @@ class AuthService {
 
   // Get unique device ID
   Future<String> getDeviceId() async {
-    String deviceId = '';
     try {
+      String deviceId = '';
       if (Platform.isAndroid) {
         AndroidDeviceInfo androidInfo = await _deviceInfo.androidInfo;
         deviceId = androidInfo.id;
@@ -35,23 +37,25 @@ class AuthService {
       var digest = sha256.convert(bytes);
       return digest.toString();
     } catch (e) {
-      throw Exception('Failed to get device ID: $e');
+      throw AuthException('Failed to get device ID: $e');
     }
   }
 
   // Check if device is rooted/jailbroken (basic check)
-  Future<bool> isDeviceSecure() async {
+  Future<void> isDeviceSecure() async {
     try {
       if (Platform.isAndroid) {
         AndroidDeviceInfo androidInfo = await _deviceInfo.androidInfo;
         // Basic check for rooted device indicators
-        return !androidInfo.isPhysicalDevice || 
+        if (androidInfo.isPhysicalDevice ||
                androidInfo.model.toLowerCase().contains('emulator') ||
-               androidInfo.product.toLowerCase().contains('sdk');
+               androidInfo.product.toLowerCase().contains('sdk')) {
+          throw AuthException('Device security check failed. Rooted/jailbroken devices are not allowed.');
+        }
       }
-      return true; // For iOS, assume secure for now
+      // For iOS, assume secure for now
     } catch (e) {
-      return false; // If we can't check, assume insecure
+      throw AuthException('Failed to check device security: $e');
     }
   }
 
@@ -65,31 +69,19 @@ class AuthService {
     required String password,
   }) async {
     try {
-      // Check device security
-      if (!await isDeviceSecure()) {
-        throw Exception('Device security check failed. Rooted/jailbroken devices are not allowed.');
-      }
-
+      await isDeviceSecure();
       String deviceId = await getDeviceId();
-      String email = '${enrollmentNumber.toLowerCase()}@unimark.edu';
+      String email = '${enrollmentNumber.toLowerCase()}@${AppConfig.emailDomain}';
       
-      // Check if enrollment number already exists
-      final existingStudent = await _firestore
-          .collection('users')
-          .where('enrollmentNumber', isEqualTo: enrollmentNumber)
-          .get();
-      
-      if (existingStudent.docs.isNotEmpty) {
-        throw Exception('Enrollment number already registered');
+      if (await enrollmentNumberExists(enrollmentNumber)) {
+        throw EnrollmentNumberAlreadyExistsException();
       }
 
-      // Create Firebase Auth user
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      // Create student document
       final student = StudentModel(
         id: userCredential.user!.uid,
         name: name,
@@ -109,8 +101,18 @@ class AuthService {
           .set(student.toMap());
 
       return userCredential;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'weak-password') {
+        throw WeakPasswordException();
+      } else if (e.code == 'email-already-in-use') {
+        throw EmailAlreadyInUseException();
+      } else if (e.code == 'invalid-email') {
+        throw InvalidEmailException();
+      } else {
+        throw NetworkException();
+      }
     } catch (e) {
-      throw Exception('Registration failed: $e');
+      throw UnknownException();
     }
   }
 
@@ -124,13 +126,11 @@ class AuthService {
     required List<int> assignedClasses,
   }) async {
     try {
-      // Create Firebase Auth user
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      // Create faculty document
       final faculty = FacultyModel(
         id: userCredential.user!.uid,
         name: name,
@@ -148,8 +148,18 @@ class AuthService {
           .set(faculty.toMap());
 
       return userCredential;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'weak-password') {
+        throw WeakPasswordException();
+      } else if (e.code == 'email-already-in-use') {
+        throw EmailAlreadyInUseException();
+      } else if (e.code == 'invalid-email') {
+        throw InvalidEmailException();
+      } else {
+        throw NetworkException();
+      }
     } catch (e) {
-      throw Exception('Faculty registration failed: $e');
+      throw UnknownException();
     }
   }
 
@@ -161,7 +171,6 @@ class AuthService {
         password: password,
       );
 
-      // Get user document
       DocumentSnapshot userDoc = await _firestore
           .collection('users')
           .doc(userCredential.user!.uid)
@@ -169,28 +178,25 @@ class AuthService {
 
       if (!userDoc.exists) {
         await _auth.signOut();
-        throw Exception('User data not found');
+        throw UserNotFoundException();
       }
 
       Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
       
-      // Check if user is active
       if (userData['isActive'] != true) {
         await _auth.signOut();
-        throw Exception('Account is deactivated');
+        throw UserDisabledException();
       }
 
-      // For students, check device binding
-      if (userData['role'] == 'student') {
+      if (userData['role'] == UserRole.student.name) {
         String currentDeviceId = await getDeviceId();
         String? registeredDeviceId = userData['deviceId'];
 
         if (registeredDeviceId != null && registeredDeviceId != currentDeviceId) {
           await _auth.signOut();
-          throw Exception('This account is bound to another device');
+          throw DeviceBindingException();
         }
 
-        // Update device ID if not set
         if (registeredDeviceId == null) {
           await _firestore
               .collection('users')
@@ -203,8 +209,18 @@ class AuthService {
       }
 
       return userCredential;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found' || e.code == 'wrong-password') {
+        throw InvalidCredentialsException();
+      } else if (e.code == 'user-disabled') {
+        throw UserDisabledException();
+      } else if (e.code == 'too-many-requests') {
+        throw TooManyRequestsException();
+      } else {
+        throw NetworkException();
+      }
     } catch (e) {
-      throw Exception('Login failed: $e');
+      throw UnknownException();
     }
   }
 
@@ -222,18 +238,18 @@ class AuthService {
 
       Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
       
-      switch (userData['role']) {
-        case 'student':
+      final role = UserRole.values.byName(userData['role'] ?? UserRole.student.name);
+
+      switch (role) {
+        case UserRole.student:
           return StudentModel.fromMap(userData);
-        case 'faculty':
+        case UserRole.faculty:
           return FacultyModel.fromMap(userData);
-        case 'admin':
-          return UserModel.fromMap(userData);
-        default:
+        case UserRole.admin:
           return UserModel.fromMap(userData);
       }
     } catch (e) {
-      throw Exception('Failed to get user data: $e');
+      throw FirestoreException('Failed to get user data.');
     }
   }
 
@@ -242,7 +258,7 @@ class AuthService {
     try {
       await _auth.signOut();
     } catch (e) {
-      throw Exception('Logout failed: $e');
+      throw AuthException('Logout failed: $e');
     }
   }
 
@@ -250,15 +266,21 @@ class AuthService {
   Future<void> resetPassword(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        throw UserNotFoundException();
+      } else {
+        throw NetworkException();
+      }
     } catch (e) {
-      throw Exception('Password reset failed: $e');
+      throw UnknownException();
     }
   }
 
   // Update user profile
   Future<void> updateUserProfile(Map<String, dynamic> updates) async {
     try {
-      if (currentUser == null) throw Exception('No user logged in');
+      if (currentUser == null) throw AuthException('No user logged in');
       
       updates['updatedAt'] = DateTime.now();
       
@@ -266,8 +288,10 @@ class AuthService {
           .collection('users')
           .doc(currentUser!.uid)
           .update(updates);
+    } on FirebaseException catch (e) {
+      throw FirestoreException(e.message ?? 'Profile update failed.');
     } catch (e) {
-      throw Exception('Profile update failed: $e');
+      throw UnknownException();
     }
   }
 
@@ -281,23 +305,12 @@ class AuthService {
       
       return query.docs.isNotEmpty;
     } catch (e) {
-      return false;
+      throw FirestoreException('Failed to check enrollment number.');
     }
   }
 
   // Validate course name
-  List<String> get validCourses => [
-    'BTECH',
-    'CIVIL',
-    'MECHANICAL',
-    'ELECTRICAL',
-    'COMPUTER',
-    'ELECTRONICS',
-    'CHEMICAL',
-    'AEROSPACE',
-    'BIOMEDICAL',
-    'ENVIRONMENTAL'
-  ];
+  List<String> get validCourses => AppConfig.validCourses;
 
   bool isValidCourse(String course) {
     return validCourses.contains(course.toUpperCase());
