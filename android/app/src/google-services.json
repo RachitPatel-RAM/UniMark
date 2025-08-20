@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "36244654330",
+    "project_id": "unimark-ffb10",
+    "storage_bucket": "unimark-ffb10.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:36244654330:android:8cb694a5a34eb78147e143",
+        "android_client_info": {
+          "package_name": "com.unimark.attendance"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_o7mQC-KbyxK6iFZ28IrsvnGpzLw1L-0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
