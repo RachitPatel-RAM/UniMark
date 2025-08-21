@@ -42,9 +42,7 @@ class _FacultyDashboardState extends State<FacultyDashboard> {
     final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     if (authProvider.currentUser != null) {
-      // TODO: Implement loadFacultySessions in AttendanceProvider
-      // For now, this will do nothing, but the structure is here.
-      // await attendanceProvider.loadFacultySessions(authProvider: authProvider);
+      await attendanceProvider.loadFacultySessions(authProvider: authProvider);
     }
   }
 
@@ -172,9 +170,7 @@ class _FacultyDashboardHomeState extends State<_FacultyDashboardHome> {
     final attendanceProvider = Provider.of<AttendanceProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     if (authProvider.currentUser != null) {
-      // TODO: Implement loadFacultySessions in AttendanceProvider
-      // For now, this will do nothing, but the structure is here.
-      // await attendanceProvider.loadFacultySessions(authProvider: authProvider);
+      await attendanceProvider.loadFacultySessions(authProvider: authProvider);
     }
   }
 

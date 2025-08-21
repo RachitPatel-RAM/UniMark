@@ -68,8 +68,6 @@ class AttendanceProvider extends ChangeNotifier {
         throw AuthException('Only faculty can create sessions.');
       }
 
-      // TODO: The service should get the location, not the provider.
-      // This requires refactoring LocationService to not depend on a provider.
       final locationService = LocationService();
       final location = await locationService.getCurrentLocation();
       if (location == null) {
@@ -113,7 +111,6 @@ class AttendanceProvider extends ChangeNotifier {
         throw AuthException('Only students can join sessions.');
       }
 
-      // TODO: The service should get the location.
       final locationService = LocationService();
       final location = await locationService.getCurrentLocation();
       if (location == null) {
@@ -251,9 +248,6 @@ class AttendanceProvider extends ChangeNotifier {
         throw AuthException('Student ID is required.');
       }
 
-      // TODO: This service method needs to be created/refactored
-      // It should return a list of combined session and record data.
-      // For now, we assume it returns what we need to build the view model.
       _studentAttendanceHistory = await _attendanceService.getStudentAttendanceHistory(
         studentId: targetStudentId,
       );

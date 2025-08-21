@@ -41,8 +41,7 @@ class _ManageSessionsScreenState extends State<ManageSessionsScreen>
     
     try {
       if (authProvider.currentUser != null) {
-        // TODO: Implement loadFacultySessions in AttendanceProvider
-        // await attendanceProvider.loadFacultySessions(authProvider: authProvider);
+        await attendanceProvider.loadFacultySessions(authProvider: authProvider);
       }
     } catch (e) {
       if (mounted) {
